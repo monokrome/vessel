@@ -2,6 +2,7 @@
   "manifest_version": 2,
   "name": "Vessel",
   "version": "0.1.2",
+  "license": "MIT",
   "description": "Automatic temporary containers with permanent container rules for specific domains.",
   "author": "monokrome",
   "homepage_url": "https://github.com/monokrome/vessel",
