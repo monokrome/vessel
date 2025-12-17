@@ -57,14 +57,6 @@ jobs:
           cd web-ext-artifacts
           mv *.xpi vessel-${{ steps.version.outputs.version }}.xpi
 
-      - name: Submit to AMO (listed)
-        run: |
-          pnpm web-ext sign \
-            --source-dir src \
-            --channel listed \
-            --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
-            --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -72,3 +64,12 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
+
+      - name: Submit to AMO (listed)
+        continue-on-error: true
+        run: |
+          pnpm web-ext sign \
+            --source-dir src \
+            --channel listed \
+            --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
+            --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
