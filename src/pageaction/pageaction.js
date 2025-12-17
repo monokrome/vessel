@@ -14,6 +14,8 @@ let currentDomain = null;
 let currentTab = null;
 let state = null;
 let containers = [];
+let pendingRequests = [];
+let pendingBlendDomain = null;
 
 async function init() {
   // Get current tab
@@ -48,6 +50,54 @@ async function init() {
   }
 
   renderContainerList();
+  await loadPendingRequests();
+}
+
+async function loadPendingRequests() {
+  pendingRequests = await browser.runtime.sendMessage({
+    type: 'getPendingRequests',
+    tabId: currentTab.id
+  });
+
+  renderPendingList();
+}
+
+function renderPendingList() {
+  const section = document.getElementById('pendingSection');
+  const list = document.getElementById('pendingList');
+
+  if (pendingRequests.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+
+  // Get current container name for the "Add to container" button
+  const existingRule = state.domainRules[currentDomain];
+  const containerName = existingRule?.containerName || 'this container';
+
+  section.style.display = 'block';
+  list.innerHTML = pendingRequests.map(req => {
+    // Check if this domain belongs to another container
+    const domainRule = state.domainRules[req.domain];
+    const isCrossContainer = domainRule && domainRule.cookieStoreId !== currentTab.cookieStoreId;
+
+    return `
+      <div class="pending-item" data-domain="${escapeAttr(req.domain)}">
+        <div class="pending-header">
+          <span class="pending-domain" title="${escapeAttr(req.domain)}">${escapeHtml(req.domain)}</span>
+          <span class="pending-count">${req.pending} waiting</span>
+        </div>
+        <div class="pending-actions">
+          ${isCrossContainer
+            ? `<button class="btn-blend" data-action="blend" title="Allow ${escapeAttr(req.domain)} in this container (belongs to ${escapeAttr(domainRule.containerName)})">Blend containers</button>`
+            : `<button class="btn-allow" data-action="allow" title="Add to ${escapeAttr(containerName)} permanently">Add to container</button>`
+          }
+          <button class="btn-once" data-action="once" title="Allow this time only">Allow once</button>
+          <button class="btn-block" data-action="block" title="Block and remember">Block</button>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 function renderContainerList() {
@@ -154,6 +204,124 @@ document.getElementById('createContainerBtn').addEventListener('click', async ()
 
 document.getElementById('newContainerName').addEventListener('keypress', (e) => {
   if (e.key === 'Enter') document.getElementById('createContainerBtn').click();
+});
+
+// Event: Handle pending request actions
+document.getElementById('pendingList').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+
+  const item = btn.closest('.pending-item');
+  const domain = item.dataset.domain;
+  const action = btn.dataset.action;
+
+  const existingRule = state.domainRules[currentDomain];
+
+  if (action === 'allow') {
+    // Add to current container permanently
+    await browser.runtime.sendMessage({
+      type: 'allowDomain',
+      tabId: currentTab.id,
+      domain: domain,
+      addRule: true,
+      containerName: existingRule?.containerName
+    });
+  } else if (action === 'blend') {
+    // Skip confirmation if user opted out of warnings
+    if (state.hideBlendWarning) {
+      await performBlend(domain);
+      state = await browser.runtime.sendMessage({ type: 'getState' });
+      await loadPendingRequests();
+      return;
+    }
+
+    // Show confirmation dialog before blending
+    const domainRule = state.domainRules[domain];
+    const currentContainerRule = state.domainRules[currentDomain];
+    const sourceContainerName = domainRule?.containerName || 'another container';
+    const targetContainerName = currentContainerRule?.containerName || 'this container';
+
+    pendingBlendDomain = domain;
+    document.getElementById('confirmDomain').textContent = domain;
+    document.getElementById('confirmMessage').textContent =
+      `This domain belongs to the ${sourceContainerName} container. Blending into ${targetContainerName} allows cross-container requests from ${sourceContainerName} to ${targetContainerName} which could be used to track or otherwise undermine your privacy. Only do this if it is absolutely necessary.`;
+    document.getElementById('confirmDontShowAgain').checked = false;
+    document.getElementById('confirmOverlay').classList.add('active');
+    return;
+  } else if (action === 'once') {
+    // Allow this time only
+    await browser.runtime.sendMessage({
+      type: 'allowOnce',
+      tabId: currentTab.id,
+      domain: domain
+    });
+  } else if (action === 'block') {
+    // Block and add to exclusion list
+    await browser.runtime.sendMessage({
+      type: 'blockDomain',
+      tabId: currentTab.id,
+      domain: domain,
+      addExclusion: true,
+      cookieStoreId: currentTab.cookieStoreId
+    });
+  }
+
+  // Reload state and re-render
+  state = await browser.runtime.sendMessage({ type: 'getState' });
+  await loadPendingRequests();
+});
+
+// Helper to perform blend action
+async function performBlend(domain) {
+  await browser.runtime.sendMessage({
+    type: 'addBlend',
+    cookieStoreId: currentTab.cookieStoreId,
+    domain: domain
+  });
+  await browser.runtime.sendMessage({
+    type: 'allowOnce',
+    tabId: currentTab.id,
+    domain: domain
+  });
+}
+
+// Event: Cancel blend confirmation
+document.getElementById('confirmCancel').addEventListener('click', () => {
+  pendingBlendDomain = null;
+  document.getElementById('confirmOverlay').classList.remove('active');
+});
+
+// Event: Confirm blend
+document.getElementById('confirmBlend').addEventListener('click', async () => {
+  if (!pendingBlendDomain) return;
+
+  const domain = pendingBlendDomain;
+  const dontShowAgain = document.getElementById('confirmDontShowAgain').checked;
+
+  pendingBlendDomain = null;
+  document.getElementById('confirmOverlay').classList.remove('active');
+
+  // Save preference if checkbox was checked
+  if (dontShowAgain) {
+    await browser.runtime.sendMessage({
+      type: 'setHideBlendWarning',
+      value: true
+    });
+  }
+
+  await performBlend(domain);
+
+  // Reload state and re-render
+  state = await browser.runtime.sendMessage({ type: 'getState' });
+  await loadPendingRequests();
+});
+
+// Event: Click overlay to cancel
+document.getElementById('confirmOverlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) {
+    pendingBlendDomain = null;
+    document.getElementById('confirmOverlay').classList.remove('active');
+  }
 });
 
 init();

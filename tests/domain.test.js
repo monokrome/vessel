@@ -5,9 +5,11 @@ import {
   isSubdomainOf,
   getEffectiveSubdomainSetting,
   isExcludedFromContainer,
+  isBlendedInContainer,
   findMatchingRule,
   findParentRule,
   shouldNavigateToContainer,
+  shouldBlockRequest,
 } from '../src/lib/domain.js';
 
 describe('extractDomain', () => {
@@ -143,6 +145,32 @@ describe('isExcludedFromContainer', () => {
   it('returns false when container has no exclusions', () => {
     const state = { containerExclusions: {} };
     expect(isExcludedFromContainer('api.example.com', 'container-1', state)).toBe(false);
+  });
+});
+
+describe('isBlendedInContainer', () => {
+  it('returns true when domain is in blend list', () => {
+    const state = {
+      containerBlends: { 'amazon-container': ['paypal.com'] },
+    };
+    expect(isBlendedInContainer('paypal.com', 'amazon-container', state)).toBe(true);
+  });
+
+  it('returns false when domain is not in blend list', () => {
+    const state = {
+      containerBlends: { 'amazon-container': ['stripe.com'] },
+    };
+    expect(isBlendedInContainer('paypal.com', 'amazon-container', state)).toBe(false);
+  });
+
+  it('returns false when container has no blends', () => {
+    const state = { containerBlends: {} };
+    expect(isBlendedInContainer('paypal.com', 'amazon-container', state)).toBe(false);
+  });
+
+  it('returns false when containerBlends is undefined', () => {
+    const state = {};
+    expect(isBlendedInContainer('paypal.com', 'amazon-container', state)).toBe(false);
   });
 });
 
@@ -350,5 +378,167 @@ describe('shouldNavigateToContainer', () => {
   it('returns null for unmatched domain already in non-default container', () => {
     const state = createState();
     expect(shouldNavigateToContainer('https://example.com', 'container-1', state, [])).toBe(null);
+  });
+});
+
+describe('shouldBlockRequest', () => {
+  const createState = (domainRules = {}, overrides = {}) => ({
+    globalSubdomains: false,
+    containerSubdomains: {},
+    containerExclusions: {},
+    domainRules,
+    ...overrides,
+  });
+
+  it('allows same-domain requests', () => {
+    const state = createState();
+    const result = shouldBlockRequest('example.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+  });
+
+  it('allows subdomain requests of tab domain', () => {
+    const state = createState();
+    const result = shouldBlockRequest('api.example.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+  });
+
+  it('allows parent domain requests from subdomain tab', () => {
+    const state = createState();
+    const result = shouldBlockRequest('example.com', 'container-1', 'www.example.com', state, []);
+    expect(result.block).toBe(false);
+  });
+
+  it('blocks requests to domain in different container', () => {
+    const state = createState({
+      'other.com': { cookieStoreId: 'container-2', containerName: 'Other', subdomains: null },
+    });
+    const result = shouldBlockRequest('other.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('cross-container');
+    expect(result.targetContainer).toBe('Other');
+  });
+
+  it('allows requests to domain in same container', () => {
+    const state = createState({
+      'other.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
+    });
+    const result = shouldBlockRequest('other.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+  });
+
+  it('blocks requests to subdomain with ask setting', () => {
+    const state = createState({
+      'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: 'ask' },
+    });
+    const result = shouldBlockRequest('api.example.com', 'container-1', 'other.com', state, []);
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('ask-subdomain');
+    expect(result.parentDomain).toBe('example.com');
+  });
+
+  it('blocks requests to excluded domains', () => {
+    const state = createState(
+      {
+        'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: true },
+      },
+      {
+        containerExclusions: { 'container-1': ['tracking.example.com'] },
+      }
+    );
+    const result = shouldBlockRequest('tracking.example.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('excluded');
+  });
+
+  it('allows requests to unruled domains from permanent container', () => {
+    const state = createState({
+      'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
+    });
+    const result = shouldBlockRequest('cdn.cloudflare.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+  });
+
+  it('allows requests from temp container to unruled domains', () => {
+    const state = createState();
+    const result = shouldBlockRequest('analytics.com', 'temp-container-1', 'example.com', state, ['temp-container-1']);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('temp-container');
+  });
+
+  it('allows cross-container requests from temp container', () => {
+    const state = createState({
+      'paypal.com': { cookieStoreId: 'paypal-container', containerName: 'PayPal', subdomains: null },
+    });
+    // Request from temp container to PayPal - should be allowed
+    const result = shouldBlockRequest('paypal.com', 'temp-container-1', 'example.com', state, ['temp-container-1']);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('temp-container');
+  });
+
+  it('blocks cross-container requests from permanent container', () => {
+    const state = createState({
+      'amazon.com': { cookieStoreId: 'amazon-container', containerName: 'Amazon', subdomains: null },
+      'paypal.com': { cookieStoreId: 'paypal-container', containerName: 'PayPal', subdomains: null },
+    });
+    // Request from Amazon (permanent) to PayPal - should be blocked
+    const result = shouldBlockRequest('paypal.com', 'amazon-container', 'amazon.com', state, ['temp-container-1']);
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('cross-container');
+  });
+
+  it('allows unknown third-party from temp container without blocking', () => {
+    const state = createState();
+    // Unknown third-party from temp container - allowed
+    const result = shouldBlockRequest('tracker.com', 'temp-container-1', 'example.com', state, ['temp-container-1']);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('temp-container');
+  });
+
+  it('allows blended cross-container requests', () => {
+    const state = createState(
+      {
+        'amazon.com': { cookieStoreId: 'amazon-container', containerName: 'Amazon', subdomains: null },
+        'paypal.com': { cookieStoreId: 'paypal-container', containerName: 'PayPal', subdomains: null },
+      },
+      {
+        containerBlends: { 'amazon-container': ['paypal.com'] },
+      }
+    );
+    // Request from Amazon to PayPal - should be allowed because PayPal is blended
+    const result = shouldBlockRequest('paypal.com', 'amazon-container', 'amazon.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('blended');
+  });
+
+  it('blocks non-blended cross-container requests', () => {
+    const state = createState(
+      {
+        'amazon.com': { cookieStoreId: 'amazon-container', containerName: 'Amazon', subdomains: null },
+        'paypal.com': { cookieStoreId: 'paypal-container', containerName: 'PayPal', subdomains: null },
+      },
+      {
+        containerBlends: {}, // No blends configured
+      }
+    );
+    // Request from Amazon to PayPal - should be blocked (no blend)
+    const result = shouldBlockRequest('paypal.com', 'amazon-container', 'amazon.com', state, []);
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('cross-container');
+  });
+
+  it('blend only works in configured direction', () => {
+    const state = createState(
+      {
+        'amazon.com': { cookieStoreId: 'amazon-container', containerName: 'Amazon', subdomains: null },
+        'paypal.com': { cookieStoreId: 'paypal-container', containerName: 'PayPal', subdomains: null },
+      },
+      {
+        containerBlends: { 'amazon-container': ['paypal.com'] }, // Only Amazon→PayPal
+      }
+    );
+    // Request from PayPal to Amazon - should be blocked (blend is one-way)
+    const result = shouldBlockRequest('amazon.com', 'paypal-container', 'paypal.com', state, []);
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('cross-container');
   });
 });

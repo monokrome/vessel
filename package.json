@@ -4,7 +4,7 @@
   "description": "Automatic temporary containers with permanent container rules for Firefox/LibreWolf",
   "private": true,
   "scripts": {
-    "dev": "web-ext run --source-dir src --firefox-binary librewolf",
+    "dev": "echo 'Load extension manually: about:debugging#/runtime/this-firefox → Load Temporary Add-on → select src/manifest.json' && librewolf about:debugging#/runtime/this-firefox",
     "build": "web-ext build --source-dir src --overwrite-dest",
     "lint": "web-ext lint --source-dir src",
     "test": "vitest run",
@@ -14,7 +14,7 @@
     "type": "git",
     "url": "git+https://github.com/monokrome/vessel.git"
   },
-  "author": "monokrome",
+  "author": "Bailey \"monokrome\" Stoner <hey@monokro.me>",
   "license": "MIT",
   "devDependencies": {
     "vitest": "^2.1.0",

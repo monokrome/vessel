@@ -41,6 +41,11 @@ export function isExcludedFromContainer(domain, cookieStoreId, state) {
   return exclusions.includes(domain);
 }
 
+export function isBlendedInContainer(domain, cookieStoreId, state) {
+  const blends = state.containerBlends?.[cookieStoreId] || [];
+  return blends.includes(domain);
+}
+
 export function findMatchingRule(domain, state) {
   // Direct match
   if (state.domainRules[domain]) {
@@ -114,4 +119,87 @@ export function shouldNavigateToContainer(url, tabCookieStoreId, state, tempCont
   }
 
   return null;
+}
+
+/**
+ * Check if a sub-request (fetch, XHR, image, etc.) should be blocked.
+ * Returns { block: true, reason: string } or { block: false }
+ */
+export function shouldBlockRequest(requestDomain, tabCookieStoreId, tabDomain, state, tempContainers) {
+  // Allow same-domain requests
+  if (requestDomain === tabDomain) {
+    return { block: false };
+  }
+
+  // Check if tab is in a temp container - allow all requests (already isolated)
+  const isInTempContainer = tempContainers.includes(tabCookieStoreId);
+
+  const rule = findMatchingRule(requestDomain, state);
+  const tabRule = findMatchingRule(tabDomain, state);
+
+  // Check exclusions first (even for subdomains of tab domain)
+  if (tabRule && isExcludedFromContainer(requestDomain, tabRule.cookieStoreId, state)) {
+    return {
+      block: true,
+      reason: 'excluded',
+      requestDomain,
+      message: `Blocked request to ${requestDomain} (excluded from this container)`
+    };
+  }
+
+  // If request domain has a rule for a different container than the tab
+  if (rule && !rule.shouldAsk && rule.cookieStoreId !== tabCookieStoreId) {
+    // Check for blend - allows cross-container requests for specific domains
+    if (isBlendedInContainer(requestDomain, tabCookieStoreId, state)) {
+      return { block: false, reason: 'blended' };
+    }
+
+    // Temp containers allow cross-container requests (isolation is per-container)
+    if (isInTempContainer) {
+      return { block: false, reason: 'temp-container' };
+    }
+
+    return {
+      block: true,
+      reason: 'cross-container',
+      requestDomain,
+      targetContainer: rule.containerName,
+      message: `Blocked request to ${requestDomain} (belongs to "${rule.containerName}" container)`
+    };
+  }
+
+  // Temp containers allow unknown third-party requests without blocking
+  if (isInTempContainer) {
+    return { block: false, reason: 'temp-container' };
+  }
+
+  // If request domain is a subdomain with "ask" setting
+  if (rule && rule.shouldAsk) {
+    return {
+      block: true,
+      reason: 'ask-subdomain',
+      requestDomain,
+      parentDomain: rule.domain,
+      targetContainer: rule.containerName,
+      message: `Blocked request to ${requestDomain} (subdomain of ${rule.domain}, needs permission)`
+    };
+  }
+
+  // Allow subdomains of the tab's domain (after exclusion check)
+  if (isSubdomainOf(requestDomain, tabDomain) || isSubdomainOf(tabDomain, requestDomain)) {
+    return { block: false };
+  }
+
+  // If tab is in a permanent container and request goes to unruled domain
+  // This prevents tracking across containers
+  const isInPermanentContainer = tabCookieStoreId !== 'firefox-default' &&
+    !tempContainers.includes(tabCookieStoreId);
+
+  if (isInPermanentContainer && !rule) {
+    // Check if request domain is a known third-party tracker pattern
+    // For now, allow unruled requests but could be stricter
+    return { block: false };
+  }
+
+  return { block: false };
 }

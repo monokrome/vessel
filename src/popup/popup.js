@@ -52,6 +52,11 @@ function showListView() {
     document.getElementById('globalSubdomainsToggle'),
     state.globalSubdomains
   );
+  // Blend warnings: On means show warnings (hideBlendWarning = false)
+  updateToggle(
+    document.getElementById('blendWarningsToggle'),
+    !state.hideBlendWarning
+  );
 }
 
 function showDetailView(container) {
@@ -158,6 +163,17 @@ document.getElementById('globalSubdomainsToggle').addEventListener('click', asyn
   await browser.runtime.sendMessage({ type: 'setGlobalSubdomains', value });
   await loadData();
   updateToggle(document.getElementById('globalSubdomainsToggle'), value);
+});
+
+// Event: Blend warnings toggle
+document.getElementById('blendWarningsToggle').addEventListener('click', async (e) => {
+  if (e.target.tagName !== 'BUTTON') return;
+
+  // On = show warnings (hideBlendWarning = false), Off = hide warnings (hideBlendWarning = true)
+  const showWarnings = parseValue(e.target.dataset.value);
+  await browser.runtime.sendMessage({ type: 'setHideBlendWarning', value: !showWarnings });
+  await loadData();
+  updateToggle(document.getElementById('blendWarningsToggle'), showWarnings);
 });
 
 // Event: Container subdomains toggle

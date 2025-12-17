@@ -155,6 +155,181 @@
     button:hover {
       background: var(--btn-bg-hover);
     }
+
+    .section-header {
+      padding: 8px 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+    }
+
+    .pending-list {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .pending-item {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .pending-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .pending-domain {
+      flex: 1;
+      font-family: monospace;
+      font-size: 11px;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pending-count {
+      font-size: 10px;
+      color: var(--text-secondary);
+      background: var(--bg-secondary);
+      padding: 2px 6px;
+      border-radius: 10px;
+    }
+
+    .pending-actions {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .pending-actions button {
+      padding: 4px 8px;
+      font-size: 10px;
+    }
+
+    .btn-allow {
+      background: var(--success);
+      color: #fff;
+    }
+
+    .btn-allow:hover {
+      opacity: 0.9;
+    }
+
+    .btn-block {
+      background: #ff613d;
+      color: #fff;
+    }
+
+    .btn-block:hover {
+      opacity: 0.9;
+    }
+
+    .btn-once {
+      background: var(--btn-bg);
+    }
+
+    .btn-blend {
+      background: #ff9f00;
+      color: #000;
+    }
+
+    .btn-blend:hover {
+      opacity: 0.9;
+    }
+
+    .btn-blend::before {
+      content: '⚠ ';
+    }
+
+    .confirm-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 100;
+    }
+
+    .confirm-overlay.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .confirm-dialog {
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      max-width: 220px;
+      text-align: center;
+    }
+
+    .confirm-title {
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #ff9f00;
+    }
+
+    .confirm-message {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+
+    .confirm-domain {
+      font-family: monospace;
+      font-size: 11px;
+      color: var(--text-primary);
+      background: var(--bg-secondary);
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      word-break: break-all;
+    }
+
+    .confirm-buttons {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .confirm-buttons button {
+      flex: 1;
+    }
+
+    .btn-cancel {
+      background: var(--btn-bg);
+    }
+
+    .btn-confirm {
+      background: #ff9f00;
+      color: #000;
+    }
+
+    .confirm-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      cursor: pointer;
+    }
+
+    .confirm-checkbox input {
+      margin: 0;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -170,6 +345,25 @@
     <div class="add-form">
       <input type="text" id="newContainerName" placeholder="New container...">
       <button id="createContainerBtn">+</button>
+    </div>
+  </div>
+  <div id="pendingSection" style="display: none;">
+    <div class="section-header">Pending requests</div>
+    <div class="pending-list" id="pendingList"></div>
+  </div>
+  <div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-dialog">
+      <div class="confirm-title">⚠ Blend Containers?</div>
+      <div class="confirm-domain" id="confirmDomain"></div>
+      <div class="confirm-message" id="confirmMessage"></div>
+      <label class="confirm-checkbox">
+        <input type="checkbox" id="confirmDontShowAgain">
+        <span>Don't show this warning again</span>
+      </label>
+      <div class="confirm-buttons">
+        <button class="btn-cancel" id="confirmCancel">Cancel</button>
+        <button class="btn-confirm" id="confirmBlend">Blend</button>
+      </div>
     </div>
   </div>
   <script src="pageaction.js"></script>
