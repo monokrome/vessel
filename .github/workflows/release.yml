@@ -44,7 +44,7 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Sign extension
+      - name: Sign extension (unlisted)
         run: |
           pnpm web-ext sign \
             --source-dir src \
@@ -66,12 +66,3 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
-
-      - name: Submit to AMO (listed)
-        continue-on-error: true
-        run: |
-          pnpm web-ext sign \
-            --source-dir src \
-            --channel listed \
-            --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
-            --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
