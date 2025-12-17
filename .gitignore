@@ -1,0 +1,11 @@
+# Build artifacts
+web-ext-artifacts/*
+*.zip
+*.xpi
+
+# Dependencies
+node_modules/*
+
+# Non-git hidden file patterns
+.
+!.git*

@@ -1,0 +1,23 @@
+{
+  "name": "vessel",
+  "version": "0.1.0",
+  "description": "Automatic temporary containers with permanent container rules for Firefox/LibreWolf",
+  "private": true,
+  "scripts": {
+    "dev": "web-ext run --source-dir src --firefox-binary librewolf",
+    "build": "web-ext build --source-dir src --overwrite-dest",
+    "lint": "web-ext lint --source-dir src",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monokrome/vessel.git"
+  },
+  "author": "monokrome",
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^2.1.0",
+    "web-ext": "^8.0.0"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "src/lib/*.js": {
+    "type": "source",
+    "alternate": "tests/{}.test.js"
+  },
+  "tests/*.test.js": {
+    "type": "test",
+    "alternate": "src/lib/{}.js"
+  },
+  "src/background.js": {
+    "type": "background"
+  },
+  "src/popup/*.js": {
+    "type": "popup",
+    "alternate": "src/popup/{}.html"
+  },
+  "src/popup/*.html": {
+    "type": "view",
+    "alternate": "src/popup/{}.js"
+  },
+  "src/sidebar/*.js": {
+    "type": "sidebar",
+    "alternate": "src/sidebar/{}.html"
+  },
+  "src/sidebar/*.html": {
+    "type": "view",
+    "alternate": "src/sidebar/{}.js"
+  },
+  "src/pageaction/*.js": {
+    "type": "pageaction",
+    "alternate": "src/pageaction/{}.html"
+  },
+  "src/pageaction/*.html": {
+    "type": "view",
+    "alternate": "src/pageaction/{}.js"
+  },
+  "src/ask/*.js": {
+    "type": "ask",
+    "alternate": "src/ask/{}.html"
+  },
+  "src/ask/*.html": {
+    "type": "view",
+    "alternate": "src/ask/{}.js"
+  },
+  "src/manifest.json": {
+    "type": "manifest"
+  }
+}

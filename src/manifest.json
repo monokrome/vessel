@@ -1,0 +1,68 @@
+{
+  "manifest_version": 2,
+  "name": "Vessel",
+  "version": "0.1.0",
+  "description": "Automatic temporary containers with permanent container rules for specific domains.",
+  "author": "monokrome",
+  "homepage_url": "https://github.com/monokrome/vessel",
+
+  "permissions": [
+    "contextualIdentities",
+    "cookies",
+    "storage",
+    "tabs",
+    "webNavigation",
+    "notifications",
+    "<all_urls>"
+  ],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "vessel@monokro.me"
+    }
+  },
+
+  "icons": {
+    "48": "icons/vessel.svg",
+    "96": "icons/vessel.svg"
+  },
+
+  "browser_action": {
+    "default_icon": "icons/vessel.svg",
+    "default_title": "Vessel - Container Manager",
+    "default_popup": "popup/popup.html"
+  },
+
+  "page_action": {
+    "default_icon": "icons/vessel.svg",
+    "default_title": "Add domain to container",
+    "default_popup": "pageaction/pageaction.html",
+    "show_matches": ["http://*/*", "https://*/*"]
+  },
+
+  "sidebar_action": {
+    "default_icon": "icons/vessel.svg",
+    "default_title": "Vessel",
+    "default_panel": "sidebar/sidebar.html"
+  },
+
+  "commands": {
+    "add-domain": {
+      "suggested_key": {
+        "default": "Alt+C"
+      },
+      "description": "Add current domain to a container"
+    }
+  },
+
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module",
+    "persistent": true
+  },
+
+  "web_accessible_resources": [
+    "ask/ask.html",
+    "ask/ask.js"
+  ]
+}

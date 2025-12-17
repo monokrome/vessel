@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root {
+      --bg-primary: #1c1b22;
+      --bg-secondary: #2b2a33;
+      --bg-hover: #3a3a3a;
+      --border-color: #3a3a3a;
+      --text-primary: #fbfbfe;
+      --text-secondary: #8f8f9d;
+      --btn-bg: #4a4a4f;
+      --btn-bg-hover: #5a5a5f;
+      --btn-text: #fbfbfe;
+      --link-color: #8cb4ff;
+      --success: #51cd00;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg-primary: #ffffff;
+        --bg-secondary: #f9f9fa;
+        --bg-hover: #e0e0e2;
+        --border-color: #cfcfd8;
+        --text-primary: #15141a;
+        --text-secondary: #5b5b66;
+        --btn-bg: #e0e0e4;
+        --btn-bg-hover: #d0d0d4;
+        --btn-text: #15141a;
+        --link-color: #0060df;
+        --success: #058b00;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      width: 250px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
+    .header {
+      padding: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .header-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .domain {
+      font-family: monospace;
+      font-size: 13px;
+      color: var(--link-color);
+      word-break: break-all;
+    }
+
+    .current-container {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--success);
+    }
+
+    .container-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .container-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border-color);
+      gap: 10px;
+    }
+
+    .container-item:hover {
+      background: var(--bg-hover);
+    }
+
+    .container-item.active {
+      background: var(--bg-secondary);
+    }
+
+    .container-icon {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+    }
+
+    .container-name {
+      flex: 1;
+      font-size: 13px;
+    }
+
+    .checkmark {
+      color: var(--success);
+      font-size: 14px;
+    }
+
+    .empty-state {
+      color: var(--text-secondary);
+      font-style: italic;
+      text-align: center;
+      padding: 20px 12px;
+    }
+
+    .new-container {
+      padding: 12px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .add-form {
+      display: flex;
+      gap: 8px;
+    }
+
+    input {
+      flex: 1;
+      padding: 6px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--link-color);
+    }
+
+    button {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 4px;
+      background: var(--btn-bg);
+      color: var(--btn-text);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--btn-bg-hover);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-label">Add domain to container</div>
+    <div class="domain" id="domain"></div>
+    <div class="current-container" id="currentContainer"></div>
+  </div>
+  <div class="container-list" id="containerList">
+    <div class="empty-state">No containers</div>
+  </div>
+  <div class="new-container">
+    <div class="add-form">
+      <input type="text" id="newContainerName" placeholder="New container...">
+      <button id="createContainerBtn">+</button>
+    </div>
+  </div>
+  <script src="pageaction.js"></script>
+</body>
+</html>
