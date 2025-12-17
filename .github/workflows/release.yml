@@ -1,15 +1,14 @@
-name: Release (Unsigned)
+name: Release
 
 on:
   push:
     tags:
       - 'v*'
-      - '!v*-signed'
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: build
+    environment: release
 
     permissions:
       contents: write
@@ -45,10 +44,34 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Sign extension
+        run: |
+          pnpm web-ext sign \
+            --source-dir src \
+            --channel unlisted \
+            --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
+            --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
+
+      - name: Rename signed artifact
+        run: |
+          cd web-ext-artifacts
+          mv *.xpi vessel-${{ steps.version.outputs.version }}-signed.xpi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: web-ext-artifacts/vessel-${{ steps.version.outputs.version }}.zip
+          files: |
+            web-ext-artifacts/vessel-${{ steps.version.outputs.version }}.zip
+            web-ext-artifacts/vessel-${{ steps.version.outputs.version }}-signed.xpi
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
+
+      - name: Submit to AMO (listed)
+        continue-on-error: true
+        run: |
+          pnpm web-ext sign \
+            --source-dir src \
+            --channel listed \
+            --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
+            --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
