@@ -55,16 +55,13 @@ jobs:
       - name: Rename signed artifact
         run: |
           cd web-ext-artifacts
-          mv *.xpi vessel-${{ steps.version.outputs.version }}.xpi
+          mv *.xpi vessel-${{ steps.version.outputs.version }}-signed.xpi
 
-      - name: Create GitHub Release
+      - name: Add signed XPI to existing release
         uses: softprops/action-gh-release@v2
         with:
-          files: web-ext-artifacts/vessel-${{ steps.version.outputs.version }}.xpi
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-          name: v${{ steps.version.outputs.version }} (Signed)
+          tag_name: v${{ steps.version.outputs.version }}
+          files: web-ext-artifacts/vessel-${{ steps.version.outputs.version }}-signed.xpi
 
       - name: Submit to AMO (listed)
         continue-on-error: true

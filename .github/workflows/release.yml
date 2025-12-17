@@ -52,4 +52,3 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
-          name: v${{ steps.version.outputs.version }} (Unsigned)
