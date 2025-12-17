@@ -18,6 +18,6 @@
   "license": "MIT",
   "devDependencies": {
     "vitest": "^4.0.16",
-    "web-ext": "^8.0.0"
+    "web-ext": "^9.2.0"
   }
 }
