@@ -248,6 +248,8 @@ async function handleNavigation(tabId, url) {
 browser.webNavigation.onBeforeNavigate.addListener(
   async (details) => {
     if (details.frameId !== 0) return; // Only main frame
+    // Clear pending requests on any navigation (including refresh)
+    clearPendingRequestsForTab(details.tabId);
     await handleNavigation(details.tabId, details.url);
   },
   { url: [{ schemes: ['http', 'https'] }] }
@@ -260,19 +262,37 @@ browser.webNavigation.onBeforeNavigate.addListener(
 // Cache for tab info to avoid async lookups in blocking handler
 const tabInfoCache = new Map();
 
+function clearPendingRequestsForTab(tabId) {
+  const tabRequests = thirdPartyRequestsPerTab.get(tabId);
+  if (tabRequests) {
+    // Cancel all pending requests for this tab
+    for (const domainData of tabRequests.values()) {
+      for (const requestId of domainData.requestIds) {
+        const pending = pendingRequests.get(requestId);
+        if (pending) {
+          pending.resolve({ cancel: true });
+          pendingRequests.delete(requestId);
+        }
+      }
+    }
+    thirdPartyRequestsPerTab.delete(tabId);
+    updateBrowserActionBadge();
+  }
+  browser.pageAction.setTitle({
+    tabId,
+    title: 'Add domain to container'
+  });
+}
+
 async function updateTabCache(tabId) {
   try {
     const tab = await browser.tabs.get(tabId);
     const domain = tab.url ? extractDomain(tab.url) : null;
     const oldInfo = tabInfoCache.get(tabId);
 
-    // Clear third-party tracking if domain changed
-    if (oldInfo && oldInfo.domain !== domain) {
-      thirdPartyRequestsPerTab.delete(tabId);
-      browser.pageAction.setTitle({
-        tabId,
-        title: 'Add domain to container'
-      });
+    // Clear third-party tracking on any URL change (including refresh)
+    if (oldInfo && oldInfo.url !== tab.url) {
+      clearPendingRequestsForTab(tabId);
     }
 
     tabInfoCache.set(tabId, {
@@ -282,7 +302,7 @@ async function updateTabCache(tabId) {
     });
   } catch {
     tabInfoCache.delete(tabId);
-    thirdPartyRequestsPerTab.delete(tabId);
+    clearPendingRequestsForTab(tabId);
   }
 }
 
