@@ -128,7 +128,7 @@ export function shouldNavigateToContainer(url, tabCookieStoreId, state, tempCont
 export function shouldBlockRequest(requestDomain, tabCookieStoreId, tabDomain, state, tempContainers) {
   // Allow same-domain requests
   if (requestDomain === tabDomain) {
-    return { block: false };
+    return { block: false, reason: 'same-domain' };
   }
 
   // Check if tab is in a temp container - allow all requests (already isolated)
@@ -187,19 +187,28 @@ export function shouldBlockRequest(requestDomain, tabCookieStoreId, tabDomain, s
 
   // Allow subdomains of the tab's domain (after exclusion check)
   if (isSubdomainOf(requestDomain, tabDomain) || isSubdomainOf(tabDomain, requestDomain)) {
-    return { block: false };
+    return { block: false, reason: 'same-site' };
+  }
+
+  // Allow subdomains of ruled domains when subdomain setting is enabled
+  if (rule && rule.isSubdomainMatch && rule.cookieStoreId === tabCookieStoreId) {
+    return { block: false, reason: 'subdomain-allowed' };
+  }
+
+  // If request domain has a rule for the same container, allow it
+  if (rule && rule.cookieStoreId === tabCookieStoreId) {
+    return { block: false, reason: 'same-container' };
   }
 
   // If tab is in a permanent container and request goes to unruled domain
-  // This prevents tracking across containers
+  // This is an unknown third-party - return without reason to trigger pause
   const isInPermanentContainer = tabCookieStoreId !== 'firefox-default' &&
     !tempContainers.includes(tabCookieStoreId);
 
   if (isInPermanentContainer && !rule) {
-    // Check if request domain is a known third-party tracker pattern
-    // For now, allow unruled requests but could be stricter
+    // Unknown third-party in permanent container - no reason means it will be paused
     return { block: false };
   }
 
-  return { block: false };
+  return { block: false, reason: 'allowed' };
 }

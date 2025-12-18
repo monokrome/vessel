@@ -541,4 +541,173 @@ describe('shouldBlockRequest', () => {
     expect(result.block).toBe(true);
     expect(result.reason).toBe('cross-container');
   });
+
+  it('allows subdomain requests when container has subdomains enabled', () => {
+    const state = createState(
+      {
+        'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: true },
+      }
+    );
+    // Request from example.com to api.example.com - allowed as same-site (direct subdomain)
+    const result = shouldBlockRequest('api.example.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('same-site');
+  });
+
+  it('allows sibling subdomain requests when container has subdomains enabled', () => {
+    const state = createState(
+      {
+        'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: true },
+      }
+    );
+    // Request from www.example.com to api.example.com - both subdomains of ruled domain
+    const result = shouldBlockRequest('api.example.com', 'container-1', 'www.example.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('subdomain-allowed');
+  });
+
+  it('allows subdomain requests when container-level subdomain setting is true', () => {
+    const state = createState(
+      {
+        'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
+      },
+      {
+        containerSubdomains: { 'container-1': true },
+      }
+    );
+    // Subdomain setting inherited from container - allowed as same-site (direct subdomain)
+    const result = shouldBlockRequest('api.example.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('same-site');
+  });
+
+  it('allows requests to subdomains of different ruled domain in same container', () => {
+    const state = createState(
+      {
+        'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+        'uber.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+      },
+      {
+        containerSubdomains: { 'container-1': true },
+      }
+    );
+    // On ubereats.com, request to x.uber.com - both in same container with subdomains enabled
+    const result = shouldBlockRequest('x.uber.com', 'container-1', 'ubereats.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('subdomain-allowed');
+  });
+
+  it('allows deeply nested subdomain requests in same container', () => {
+    const state = createState(
+      {
+        'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+        'uber.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+      },
+      {
+        containerSubdomains: { 'container-1': true },
+      }
+    );
+    // On ubereats.com, request to x.y.z.uber.com
+    const result = shouldBlockRequest('x.y.z.uber.com', 'container-1', 'ubereats.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('subdomain-allowed');
+  });
+
+  it('allows cross-domain subdomain requests from a subdomain tab', () => {
+    const state = createState(
+      {
+        'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+        'uber.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+      },
+      {
+        containerSubdomains: { 'container-1': true },
+      }
+    );
+    // On www.ubereats.com, request to api.uber.com
+    const result = shouldBlockRequest('api.uber.com', 'container-1', 'www.ubereats.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('subdomain-allowed');
+  });
+
+  it('allows reverse direction subdomain requests in same container', () => {
+    const state = createState(
+      {
+        'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+        'uber.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+      },
+      {
+        containerSubdomains: { 'container-1': true },
+      }
+    );
+    // On uber.com, request to x.ubereats.com
+    const result = shouldBlockRequest('x.ubereats.com', 'container-1', 'uber.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('subdomain-allowed');
+  });
+
+  it('allows subdomain requests with domain-level subdomains=true', () => {
+    const state = createState(
+      {
+        'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+        'uber.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: true },
+      }
+    );
+    // Domain-level setting on uber.com enables subdomains
+    const result = shouldBlockRequest('x.uber.com', 'container-1', 'ubereats.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('subdomain-allowed');
+  });
+
+  it('pauses subdomain requests when subdomains disabled', () => {
+    const state = createState(
+      {
+        'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+        'uber.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: false },
+      }
+    );
+    // Subdomains explicitly disabled on uber.com - should pause (no reason)
+    const result = shouldBlockRequest('x.uber.com', 'container-1', 'ubereats.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('blocks subdomain requests to different container even with subdomains enabled', () => {
+    const state = createState(
+      {
+        'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: true },
+        'uber.com': { cookieStoreId: 'container-2', containerName: 'Rides', subdomains: true },
+      }
+    );
+    // uber.com is in a different container - should block
+    const result = shouldBlockRequest('x.uber.com', 'container-1', 'ubereats.com', state, []);
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('cross-container');
+  });
+
+  it('allows direct ruled domain requests in same container', () => {
+    const state = createState(
+      {
+        'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+        'uber.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
+      }
+    );
+    // On ubereats.com, request to uber.com (not a subdomain, but same container)
+    const result = shouldBlockRequest('uber.com', 'container-1', 'ubereats.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('same-container');
+  });
+
+  it('returns reason for same-domain requests', () => {
+    const state = createState();
+    const result = shouldBlockRequest('example.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('same-domain');
+  });
+
+  it('returns reason for same-site subdomain requests', () => {
+    const state = createState();
+    const result = shouldBlockRequest('api.example.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('same-site');
+  });
 });
