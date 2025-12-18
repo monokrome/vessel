@@ -17,6 +17,7 @@
   "author": "Bailey \"monokrome\" Stoner <hey@monokro.me>",
   "license": "MIT",
   "devDependencies": {
+    "jsdom": "^27.3.0",
     "vitest": "^4.0.16",
     "web-ext": "^9.2.0"
   }
