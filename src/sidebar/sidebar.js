@@ -150,6 +150,50 @@ document.getElementById('containerList').addEventListener('click', (e) => {
 // Event: Back button
 document.getElementById('backBtn').addEventListener('click', showListView);
 
+// Event: Click container name to rename
+document.getElementById('detailTitle').addEventListener('click', () => {
+  if (!selectedContainer) return;
+
+  const header = document.getElementById('detailTitle').parentElement;
+  const title = document.getElementById('detailTitle');
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'title-input';
+  input.value = selectedContainer.name;
+
+  title.style.display = 'none';
+  header.insertBefore(input, title);
+  input.focus();
+  input.select();
+
+  async function saveRename() {
+    const newName = input.value.trim();
+    if (newName && newName !== selectedContainer.name) {
+      await browser.contextualIdentities.update(selectedContainer.cookieStoreId, { name: newName });
+      await loadData();
+      selectedContainer = containers.find(c => c.cookieStoreId === selectedContainer.cookieStoreId);
+    }
+    input.remove();
+    title.style.display = '';
+    if (selectedContainer) {
+      title.textContent = selectedContainer.name;
+    }
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveRename();
+    } else if (e.key === 'Escape') {
+      input.remove();
+      title.style.display = '';
+    }
+  });
+
+  input.addEventListener('blur', saveRename);
+});
+
 // Event: Global subdomains toggle
 document.getElementById('globalSubdomainsToggle').addEventListener('click', async (e) => {
   if (e.target.tagName !== 'BUTTON') return;
