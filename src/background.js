@@ -145,9 +145,15 @@ async function cleanupEmptyTempContainers() {
 // Track tabs we've just created to avoid re-processing them
 const recentlyCreatedTabs = new Set();
 
+// Track tabs currently being moved to avoid race conditions
+const tabsBeingMoved = new Set();
+
 async function reopenInContainer(tab, cookieStoreId, url) {
   // Don't reopen if already in correct container
   if (tab.cookieStoreId === cookieStoreId) return;
+
+  // Don't reopen if this tab is already being moved
+  if (tabsBeingMoved.has(tab.id)) return;
 
   // Use provided URL or fall back to tab.url
   const targetUrl = url || tab.url;
@@ -155,18 +161,25 @@ async function reopenInContainer(tab, cookieStoreId, url) {
     return;
   }
 
-  const newTab = await browser.tabs.create({
-    url: targetUrl,
-    cookieStoreId,
-    index: tab.index + 1,
-    active: tab.active
-  });
+  // Mark tab as being moved to prevent race conditions
+  tabsBeingMoved.add(tab.id);
 
-  // Mark this tab so we don't re-process it
-  recentlyCreatedTabs.add(newTab.id);
-  setTimeout(() => recentlyCreatedTabs.delete(newTab.id), 2000);
+  try {
+    const newTab = await browser.tabs.create({
+      url: targetUrl,
+      cookieStoreId,
+      index: tab.index + 1,
+      active: tab.active
+    });
 
-  await browser.tabs.remove(tab.id);
+    // Mark new tab so we don't re-process it
+    recentlyCreatedTabs.add(newTab.id);
+    setTimeout(() => recentlyCreatedTabs.delete(newTab.id), 2000);
+
+    await browser.tabs.remove(tab.id);
+  } finally {
+    tabsBeingMoved.delete(tab.id);
+  }
 }
 
 async function handleNavigation(tabId, url) {
@@ -174,8 +187,8 @@ async function handleNavigation(tabId, url) {
     return;
   }
 
-  // Skip tabs we just created
-  if (recentlyCreatedTabs.has(tabId)) {
+  // Skip tabs we just created or are currently moving
+  if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
     return;
   }
 
