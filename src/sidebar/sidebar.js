@@ -5,6 +5,7 @@ import {
   renderContainerList,
   renderDomainList,
   renderExclusionList,
+  renderBlendList,
   createRenameInput
 } from '../lib/ui-shared.js';
 import { TIMING } from '../lib/constants.js';
@@ -15,6 +16,7 @@ let selectedContainer = null;
 let currentTabId = null;
 let pendingRefreshInterval = null;
 let currentTab = 'containers';
+let pendingBlendDomain = null;
 
 async function loadData() {
   state = await browser.runtime.sendMessage({ type: 'getState' });
@@ -116,6 +118,7 @@ function showDetailView(container) {
 
   renderDomainList(state, container.cookieStoreId, document.getElementById('domainList'));
   renderExclusionList(state, container.cookieStoreId, document.getElementById('exclusionList'));
+  renderBlendList(state, container.cookieStoreId, document.getElementById('blendList'), containers);
   switchTab('containers');
 }
 
@@ -304,6 +307,70 @@ document.getElementById('exclusionList').addEventListener('click', async (e) => 
     });
     await loadData();
     renderExclusionList(state, selectedContainer.cookieStoreId, document.getElementById('exclusionList'));
+  }
+});
+
+// Event: Add blend button
+document.getElementById('addBlendBtn').addEventListener('click', () => {
+  const input = document.getElementById('newBlend');
+  const domain = input.value.trim().toLowerCase();
+  if (!domain || !selectedContainer) return;
+
+  pendingBlendDomain = domain;
+
+  // Show warning if not hidden
+  if (state.hideBlendWarning) {
+    confirmAddBlend();
+  } else {
+    document.getElementById('blendWarningOverlay').style.display = 'flex';
+  }
+});
+
+document.getElementById('newBlend').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') document.getElementById('addBlendBtn').click();
+});
+
+// Event: Blend warning dialog
+document.getElementById('blendWarningCancel').addEventListener('click', () => {
+  document.getElementById('blendWarningOverlay').style.display = 'none';
+  pendingBlendDomain = null;
+});
+
+document.getElementById('blendWarningConfirm').addEventListener('click', async () => {
+  const hideWarning = document.getElementById('hideBlendWarning').checked;
+  if (hideWarning) {
+    await browser.runtime.sendMessage({ type: 'setHideBlendWarning', value: true });
+  }
+  document.getElementById('blendWarningOverlay').style.display = 'none';
+  confirmAddBlend();
+});
+
+async function confirmAddBlend() {
+  if (!pendingBlendDomain || !selectedContainer) return;
+
+  await browser.runtime.sendMessage({
+    type: 'addBlend',
+    cookieStoreId: selectedContainer.cookieStoreId,
+    domain: pendingBlendDomain
+  });
+
+  document.getElementById('newBlend').value = '';
+  pendingBlendDomain = null;
+  await loadData();
+  renderBlendList(state, selectedContainer.cookieStoreId, document.getElementById('blendList'), containers);
+}
+
+// Event: Blend list clicks (remove)
+document.getElementById('blendList').addEventListener('click', async (e) => {
+  if (e.target.classList.contains('remove-blend-btn')) {
+    const domain = e.target.dataset.domain;
+    await browser.runtime.sendMessage({
+      type: 'removeBlend',
+      cookieStoreId: selectedContainer.cookieStoreId,
+      domain
+    });
+    await loadData();
+    renderBlendList(state, selectedContainer.cookieStoreId, document.getElementById('blendList'), containers);
   }
 });
 

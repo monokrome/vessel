@@ -837,17 +837,17 @@ describe('shouldBlockRequest', () => {
     expect(result.reason).toBe('subdomain-allowed');
   });
 
-  it('pauses subdomain requests when subdomains disabled', () => {
+  it('allows subdomain requests as unknown when subdomains disabled', () => {
     const state = createState(
       {
         'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
         'uber.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: false },
       }
     );
-    // Subdomains explicitly disabled on uber.com - should pause (no reason)
+    // Subdomains explicitly disabled on uber.com - treated as unknown third-party
     const result = shouldBlockRequest('x.uber.com', 'container-1', 'ubereats.com', state, []);
     expect(result.block).toBe(false);
-    expect(result.reason).toBeUndefined();
+    expect(result.reason).toBe('unknown-allowed');
   });
 
   it('blocks subdomain requests to different container even with subdomains enabled', () => {

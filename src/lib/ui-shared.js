@@ -4,6 +4,7 @@
  */
 
 import { CONTAINER_COLORS } from './constants.js';
+import { STRINGS } from './strings.js';
 
 /**
  * Escape HTML to prevent XSS in text content
@@ -133,6 +134,48 @@ export function renderExclusionList(state, cookieStoreId, listElement) {
       <button class="remove-btn remove-exclusion-btn" data-domain="${escapeAttr(domain)}">×</button>
     </div>
   `).join('');
+}
+
+/**
+ * Get blended domains for a container
+ */
+export function getBlendsForContainer(state, cookieStoreId) {
+  return state.containerBlends?.[cookieStoreId] || [];
+}
+
+/**
+ * Find which container owns a domain
+ */
+export function findDomainOwner(domain, state, containers) {
+  const rule = state.domainRules[domain];
+  if (!rule) return null;
+
+  const container = containers.find(c => c.cookieStoreId === rule.cookieStoreId);
+  return container ? container.name : null;
+}
+
+/**
+ * Render blend list for a container
+ */
+export function renderBlendList(state, cookieStoreId, listElement, containers) {
+  const blends = getBlendsForContainer(state, cookieStoreId);
+
+  if (blends.length === 0) {
+    listElement.innerHTML = `<div class="empty-state">${STRINGS.emptyBlends}</div>`;
+    return;
+  }
+
+  listElement.innerHTML = blends.map(domain => {
+    const ownerName = findDomainOwner(domain, state, containers);
+    const sourceInfo = ownerName ? `from ${escapeHtml(ownerName)}` : '';
+    return `
+    <div class="blend-item">
+      <span class="blend-name">${escapeHtml(domain)}</span>
+      ${sourceInfo ? `<span class="blend-source">${sourceInfo}</span>` : ''}
+      <button class="remove-btn remove-blend-btn" data-domain="${escapeAttr(domain)}">×</button>
+    </div>
+  `;
+  }).join('');
 }
 
 /**

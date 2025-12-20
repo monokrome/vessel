@@ -11,9 +11,12 @@ import {
   getContainerColor,
   getDomainsForContainer,
   getExclusionsForContainer,
+  getBlendsForContainer,
+  findDomainOwner,
   renderContainerList,
   renderDomainList,
   renderExclusionList,
+  renderBlendList,
   createRenameInput,
   addToStateArray,
   removeFromStateArray
@@ -209,6 +212,110 @@ describe('getExclusionsForContainer', () => {
   it('returns empty array when no exclusions exist', () => {
     const state = { containerExclusions: {} };
     expect(getExclusionsForContainer(state, 'container-1')).toEqual([]);
+  });
+});
+
+describe('getBlendsForContainer', () => {
+  it('returns blends for container', () => {
+    const state = {
+      containerBlends: {
+        'container-1': ['cdn.example.com', 'auth.example.com'],
+        'container-2': ['other.com'],
+      }
+    };
+
+    expect(getBlendsForContainer(state, 'container-1')).toEqual(['cdn.example.com', 'auth.example.com']);
+  });
+
+  it('returns empty array when no blends exist', () => {
+    const state = { containerBlends: {} };
+    expect(getBlendsForContainer(state, 'container-1')).toEqual([]);
+  });
+
+  it('handles missing containerBlends key', () => {
+    const state = {};
+    expect(getBlendsForContainer(state, 'container-1')).toEqual([]);
+  });
+});
+
+describe('findDomainOwner', () => {
+  const containers = [
+    { cookieStoreId: 'container-1', name: 'Work' },
+    { cookieStoreId: 'container-2', name: 'Personal' },
+  ];
+
+  it('returns container name for owned domain', () => {
+    const state = {
+      domainRules: {
+        'example.com': { cookieStoreId: 'container-1' },
+      }
+    };
+
+    expect(findDomainOwner('example.com', state, containers)).toBe('Work');
+  });
+
+  it('returns null for unknown domain', () => {
+    const state = { domainRules: {} };
+    expect(findDomainOwner('unknown.com', state, containers)).toBe(null);
+  });
+
+  it('returns null when container not found', () => {
+    const state = {
+      domainRules: {
+        'example.com': { cookieStoreId: 'deleted-container' },
+      }
+    };
+
+    expect(findDomainOwner('example.com', state, containers)).toBe(null);
+  });
+});
+
+describe('renderBlendList', () => {
+  let listElement;
+  const containers = [
+    { cookieStoreId: 'container-1', name: 'Work' },
+    { cookieStoreId: 'container-2', name: 'Personal' },
+  ];
+
+  beforeEach(() => {
+    listElement = document.createElement('div');
+  });
+
+  it('renders blends with source container', () => {
+    const state = {
+      containerBlends: {
+        'container-1': ['cdn.example.com'],
+      },
+      domainRules: {
+        'cdn.example.com': { cookieStoreId: 'container-2' },
+      }
+    };
+
+    renderBlendList(state, 'container-1', listElement, containers);
+
+    expect(listElement.innerHTML).toContain('cdn.example.com');
+    expect(listElement.innerHTML).toContain('from Personal');
+    expect(listElement.querySelectorAll('.blend-item')).toHaveLength(1);
+  });
+
+  it('shows empty state when no blends', () => {
+    const state = { containerBlends: {} };
+    renderBlendList(state, 'container-1', listElement, containers);
+    expect(listElement.innerHTML).toContain('No blended domains');
+  });
+
+  it('handles blend without known owner', () => {
+    const state = {
+      containerBlends: {
+        'container-1': ['unknown-origin.com'],
+      },
+      domainRules: {}
+    };
+
+    renderBlendList(state, 'container-1', listElement, containers);
+
+    expect(listElement.innerHTML).toContain('unknown-origin.com');
+    expect(listElement.innerHTML).not.toContain('from');
   });
 });
 
