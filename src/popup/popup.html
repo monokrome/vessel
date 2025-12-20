@@ -373,6 +373,13 @@
       </div>
     </div>
     <div class="setting-row">
+      <span class="setting-label">Treat www as parent</span>
+      <div class="toggle-2" id="stripWwwToggle">
+        <button data-value="true">On</button>
+        <button data-value="false">Off</button>
+      </div>
+    </div>
+    <div class="setting-row">
       <span class="setting-label">Show blend warnings</span>
       <div class="toggle-2" id="blendWarningsToggle">
         <button data-value="true">On</button>
@@ -412,6 +419,10 @@
       <div class="empty-state">No domains</div>
     </div>
     <div class="section-header">Excluded Subdomains</div>
+    <div class="add-form">
+      <input type="text" id="newExclusion" placeholder="Add exclusion (e.g. sub.example.com)">
+      <button id="addExclusionBtn">+</button>
+    </div>
     <div class="exclusion-list" id="exclusionList">
       <div class="empty-state">No exclusions</div>
     </div>

@@ -52,6 +52,10 @@ function showListView() {
     document.getElementById('globalSubdomainsToggle'),
     state.globalSubdomains
   );
+  updateToggle(
+    document.getElementById('stripWwwToggle'),
+    state.stripWww
+  );
   // Blend warnings: On means show warnings (hideBlendWarning = false)
   updateToggle(
     document.getElementById('blendWarningsToggle'),
@@ -209,6 +213,16 @@ document.getElementById('globalSubdomainsToggle').addEventListener('click', asyn
   updateToggle(document.getElementById('globalSubdomainsToggle'), value);
 });
 
+// Event: Strip www toggle
+document.getElementById('stripWwwToggle').addEventListener('click', async (e) => {
+  if (e.target.tagName !== 'BUTTON') return;
+
+  const value = parseValue(e.target.dataset.value);
+  await browser.runtime.sendMessage({ type: 'setStripWww', value });
+  await loadData();
+  updateToggle(document.getElementById('stripWwwToggle'), value);
+});
+
 // Event: Blend warnings toggle
 document.getElementById('blendWarningsToggle').addEventListener('click', async (e) => {
   if (e.target.tagName !== 'BUTTON') return;
@@ -318,6 +332,27 @@ document.getElementById('deleteContainerBtn').addEventListener('click', async ()
 
   await loadData();
   showListView();
+});
+
+// Event: Add exclusion
+document.getElementById('addExclusionBtn').addEventListener('click', async () => {
+  const input = document.getElementById('newExclusion');
+  const domain = input.value.trim().toLowerCase();
+  if (!domain || !selectedContainer) return;
+
+  await browser.runtime.sendMessage({
+    type: 'addExclusion',
+    cookieStoreId: selectedContainer.cookieStoreId,
+    domain
+  });
+
+  input.value = '';
+  await loadData();
+  renderExclusionList();
+});
+
+document.getElementById('newExclusion').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') document.getElementById('addExclusionBtn').click();
 });
 
 // Event: Exclusion list clicks (remove)

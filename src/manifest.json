@@ -10,6 +10,7 @@
   "permissions": [
     "contextualIdentities",
     "cookies",
+    "menus",
     "storage",
     "tabs",
     "webNavigation",
@@ -41,8 +42,7 @@
   "page_action": {
     "default_icon": "icons/vessel.svg",
     "default_title": "Add domain to container",
-    "default_popup": "pageaction/pageaction.html",
-    "show_matches": ["http://*/*", "https://*/*"]
+    "default_popup": "pageaction/pageaction.html"
   },
 
   "sidebar_action": {
