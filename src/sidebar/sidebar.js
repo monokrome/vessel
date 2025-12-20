@@ -1,21 +1,20 @@
-const CONTAINER_COLORS = {
-  blue: '#37adff',
-  turquoise: '#00c79a',
-  green: '#51cd00',
-  yellow: '#ffcb00',
-  orange: '#ff9f00',
-  red: '#ff613d',
-  pink: '#ff4bda',
-  purple: '#af51f5',
-  toolbar: '#8f8f9d'
-};
+import {
+  escapeHtml,
+  parseValue,
+  updateToggle,
+  renderContainerList,
+  renderDomainList,
+  renderExclusionList,
+  createRenameInput
+} from '../lib/ui-shared.js';
+import { TIMING } from '../lib/constants.js';
 
 let state = null;
 let containers = [];
 let selectedContainer = null;
 let currentTabId = null;
 let pendingRefreshInterval = null;
-let currentTab = 'containers'; // 'containers' or 'pending'
+let currentTab = 'containers';
 
 async function loadData() {
   state = await browser.runtime.sendMessage({ type: 'getState' });
@@ -34,7 +33,8 @@ async function loadPendingRequests() {
       type: 'getPendingRequests',
       tabId: currentTabId
     });
-  } catch {
+  } catch (error) {
+    console.warn('Failed to load pending requests:', error);
     return [];
   }
 }
@@ -43,7 +43,6 @@ function renderPendingRequests(pending) {
   const list = document.getElementById('pendingList');
   const badge = document.getElementById('pendingBadge');
 
-  // Update badge
   if (!pending || pending.length === 0) {
     badge.style.display = 'none';
     list.innerHTML = '<div class="pending-empty">No pending requests for this tab</div>';
@@ -68,11 +67,9 @@ function renderPendingRequests(pending) {
 function switchTab(tab) {
   currentTab = tab;
 
-  // Update tab buttons
   document.getElementById('tabContainers').classList.toggle('active', tab === 'containers');
   document.getElementById('tabPending').classList.toggle('active', tab === 'pending');
 
-  // Update views
   if (tab === 'containers') {
     if (selectedContainer) {
       document.getElementById('listView').style.display = 'none';
@@ -99,51 +96,14 @@ function startPendingRefresh() {
     clearInterval(pendingRefreshInterval);
   }
   refreshPending();
-  pendingRefreshInterval = setInterval(refreshPending, 1000);
-}
-
-function stopPendingRefresh() {
-  if (pendingRefreshInterval) {
-    clearInterval(pendingRefreshInterval);
-    pendingRefreshInterval = null;
-  }
-}
-
-function getDomainsForContainer(cookieStoreId) {
-  return Object.entries(state.domainRules)
-    .filter(([_, rule]) => rule.cookieStoreId === cookieStoreId)
-    .map(([domain, rule]) => ({ domain, subdomains: rule.subdomains }));
-}
-
-function getExclusionsForContainer(cookieStoreId) {
-  return state.containerExclusions[cookieStoreId] || [];
-}
-
-function parseValue(str) {
-  if (str === 'true') return true;
-  if (str === 'false') return false;
-  if (str === 'ask') return 'ask';
-  return null;
-}
-
-function updateToggle(container, value) {
-  container.querySelectorAll('button').forEach(btn => {
-    const btnValue = parseValue(btn.dataset.value);
-    btn.classList.toggle('active', btnValue === value);
-  });
+  pendingRefreshInterval = setInterval(refreshPending, TIMING.pendingRefreshInterval);
 }
 
 function showListView() {
   selectedContainer = null;
-  renderContainerList();
-  updateToggle(
-    document.getElementById('globalSubdomainsToggle'),
-    state.globalSubdomains
-  );
-  updateToggle(
-    document.getElementById('stripWwwToggle'),
-    state.stripWww
-  );
+  renderContainerList(containers, state, document.getElementById('containerList'));
+  updateToggle(document.getElementById('globalSubdomainsToggle'), state.globalSubdomains);
+  updateToggle(document.getElementById('stripWwwToggle'), state.stripWww);
   switchTab('containers');
 }
 
@@ -152,81 +112,11 @@ function showDetailView(container) {
   document.getElementById('detailTitle').textContent = container.name;
 
   const containerSetting = state.containerSubdomains[container.cookieStoreId] ?? null;
-  updateToggle(
-    document.getElementById('containerSubdomainsToggle'),
-    containerSetting
-  );
+  updateToggle(document.getElementById('containerSubdomainsToggle'), containerSetting);
 
-  renderDomainList();
-  renderExclusionList();
+  renderDomainList(state, container.cookieStoreId, document.getElementById('domainList'));
+  renderExclusionList(state, container.cookieStoreId, document.getElementById('exclusionList'));
   switchTab('containers');
-}
-
-function renderContainerList() {
-  const list = document.getElementById('containerList');
-
-  if (containers.length === 0) {
-    list.innerHTML = '<div class="empty-state">No containers</div>';
-    return;
-  }
-
-  list.innerHTML = containers.map(container => {
-    const domains = getDomainsForContainer(container.cookieStoreId);
-    const color = CONTAINER_COLORS[container.color] || '#8f8f9d';
-    return `
-      <div class="container-item" data-id="${container.cookieStoreId}">
-        <div class="container-icon" style="background: ${color}"></div>
-        <span class="container-name">${escapeHtml(container.name)}</span>
-        <span class="container-count">${domains.length}</span>
-      </div>
-    `;
-  }).join('');
-}
-
-function renderDomainList() {
-  const list = document.getElementById('domainList');
-  const domains = getDomainsForContainer(selectedContainer.cookieStoreId);
-
-  if (domains.length === 0) {
-    list.innerHTML = '<div class="empty-state">No domains</div>';
-    return;
-  }
-
-  list.innerHTML = domains.map(({ domain, subdomains }) => `
-    <div class="domain-item">
-      <span class="domain-name">${escapeHtml(domain)}</span>
-      <div class="toggle-4 domain-subdomains-toggle" data-domain="${escapeHtml(domain)}">
-        <button data-value="null" class="${subdomains === null ? 'active' : ''}">Inherit</button>
-        <button data-value="false" class="${subdomains === false ? 'active' : ''}">Off</button>
-        <button data-value="ask" class="${subdomains === 'ask' ? 'active' : ''}">Ask</button>
-        <button data-value="true" class="${subdomains === true ? 'active' : ''}">On</button>
-      </div>
-      <button class="remove-btn" data-domain="${escapeHtml(domain)}">×</button>
-    </div>
-  `).join('');
-}
-
-function renderExclusionList() {
-  const list = document.getElementById('exclusionList');
-  const exclusions = getExclusionsForContainer(selectedContainer.cookieStoreId);
-
-  if (exclusions.length === 0) {
-    list.innerHTML = '<div class="empty-state">No exclusions</div>';
-    return;
-  }
-
-  list.innerHTML = exclusions.map(domain => `
-    <div class="exclusion-item">
-      <span class="exclusion-name">${escapeHtml(domain)}</span>
-      <button class="remove-btn remove-exclusion-btn" data-domain="${escapeHtml(domain)}">×</button>
-    </div>
-  `).join('');
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 // Event: Click container in list
@@ -246,44 +136,21 @@ document.getElementById('backBtn').addEventListener('click', showListView);
 document.getElementById('detailTitle').addEventListener('click', () => {
   if (!selectedContainer) return;
 
-  const header = document.getElementById('detailTitle').parentElement;
   const title = document.getElementById('detailTitle');
 
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'title-input';
-  input.value = selectedContainer.name;
-
-  title.style.display = 'none';
-  header.insertBefore(input, title);
-  input.focus();
-  input.select();
-
-  async function saveRename() {
-    const newName = input.value.trim();
-    if (newName && newName !== selectedContainer.name) {
+  createRenameInput(
+    title,
+    selectedContainer.name,
+    async (newName) => {
       await browser.contextualIdentities.update(selectedContainer.cookieStoreId, { name: newName });
       await loadData();
       selectedContainer = containers.find(c => c.cookieStoreId === selectedContainer.cookieStoreId);
-    }
-    input.remove();
-    title.style.display = '';
-    if (selectedContainer) {
+      title.textContent = selectedContainer ? selectedContainer.name : '';
+    },
+    () => {
       title.textContent = selectedContainer.name;
     }
-  }
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveRename();
-    } else if (e.key === 'Escape') {
-      input.remove();
-      title.style.display = '';
-    }
-  });
-
-  input.addEventListener('blur', saveRename);
+  );
 });
 
 // Event: Global subdomains toggle
@@ -334,7 +201,7 @@ document.getElementById('createContainerBtn').addEventListener('click', async ()
 
   input.value = '';
   await loadData();
-  renderContainerList();
+  renderContainerList(containers, state, document.getElementById('containerList'));
 });
 
 document.getElementById('newContainerName').addEventListener('keypress', (e) => {
@@ -355,7 +222,7 @@ document.getElementById('addDomainBtn').addEventListener('click', async () => {
 
   input.value = '';
   await loadData();
-  renderDomainList();
+  renderDomainList(state, selectedContainer.cookieStoreId, document.getElementById('domainList'));
 });
 
 document.getElementById('newDomain').addEventListener('keypress', (e) => {
@@ -364,16 +231,14 @@ document.getElementById('newDomain').addEventListener('keypress', (e) => {
 
 // Event: Domain list clicks (remove and subdomain toggle)
 document.getElementById('domainList').addEventListener('click', async (e) => {
-  // Remove button
   if (e.target.classList.contains('remove-btn')) {
     const domain = e.target.dataset.domain;
     await browser.runtime.sendMessage({ type: 'removeRule', domain });
     await loadData();
-    renderDomainList();
+    renderDomainList(state, selectedContainer.cookieStoreId, document.getElementById('domainList'));
     return;
   }
 
-  // Subdomain toggle
   if (e.target.tagName === 'BUTTON' && e.target.closest('.domain-subdomains-toggle')) {
     const toggle = e.target.closest('.domain-subdomains-toggle');
     const domain = toggle.dataset.domain;
@@ -385,7 +250,7 @@ document.getElementById('domainList').addEventListener('click', async (e) => {
       value
     });
     await loadData();
-    renderDomainList();
+    renderDomainList(state, selectedContainer.cookieStoreId, document.getElementById('domainList'));
   }
 });
 
@@ -393,13 +258,14 @@ document.getElementById('domainList').addEventListener('click', async (e) => {
 document.getElementById('deleteContainerBtn').addEventListener('click', async () => {
   if (!selectedContainer) return;
 
-  // Remove all domain rules for this container
-  const domains = getDomainsForContainer(selectedContainer.cookieStoreId);
-  for (const { domain } of domains) {
+  const domains = Object.entries(state.domainRules)
+    .filter(([_, rule]) => rule.cookieStoreId === selectedContainer.cookieStoreId)
+    .map(([domain]) => domain);
+
+  for (const domain of domains) {
     await browser.runtime.sendMessage({ type: 'removeRule', domain });
   }
 
-  // Delete the container
   await browser.contextualIdentities.remove(selectedContainer.cookieStoreId);
 
   await loadData();
@@ -420,7 +286,7 @@ document.getElementById('addExclusionBtn').addEventListener('click', async () =>
 
   input.value = '';
   await loadData();
-  renderExclusionList();
+  renderExclusionList(state, selectedContainer.cookieStoreId, document.getElementById('exclusionList'));
 });
 
 document.getElementById('newExclusion').addEventListener('keypress', (e) => {
@@ -437,7 +303,7 @@ document.getElementById('exclusionList').addEventListener('click', async (e) => 
       domain
     });
     await loadData();
-    renderExclusionList();
+    renderExclusionList(state, selectedContainer.cookieStoreId, document.getElementById('exclusionList'));
   }
 });
 

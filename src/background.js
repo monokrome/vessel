@@ -14,10 +14,16 @@ import {
   shouldBlockRequest,
 } from './lib/domain.js';
 import { createPendingTracker } from './lib/pending.js';
-
-const TEMP_CONTAINER_NAME = 'Vessel';
-const TEMP_CONTAINER_COLOR = 'toolbar';
-const TEMP_CONTAINER_ICON = 'circle';
+import {
+  TEMP_CONTAINER,
+  DEFAULT_CONTAINER,
+  FIREFOX_DEFAULT_CONTAINER,
+  TIMING,
+  BADGE_COLORS,
+  IGNORED_SCHEMES,
+  IGNORED_URLS
+} from './lib/constants.js';
+import { addToStateArray, removeFromStateArray } from './lib/ui-shared.js';
 
 // In-memory state (persisted to storage)
 // Subdomain values: true (on), false (off), 'ask', null (inherit)
@@ -86,9 +92,9 @@ async function saveState() {
 
 async function createTempContainer() {
   const container = await browser.contextualIdentities.create({
-    name: TEMP_CONTAINER_NAME,
-    color: TEMP_CONTAINER_COLOR,
-    icon: TEMP_CONTAINER_ICON
+    name: TEMP_CONTAINER.name,
+    color: TEMP_CONTAINER.color,
+    icon: TEMP_CONTAINER.icon
   });
 
   state.tempContainers.push(container.cookieStoreId);
@@ -115,8 +121,8 @@ async function getOrCreatePermanentContainer(name) {
 
   return await browser.contextualIdentities.create({
     name,
-    color: 'blue',
-    icon: 'briefcase'
+    color: DEFAULT_CONTAINER.color,
+    icon: DEFAULT_CONTAINER.icon
   });
 }
 
@@ -131,14 +137,14 @@ async function cleanupEmptyTempContainers() {
     }
   }
 
-  // Also clean up any orphaned "Vessel" containers not in our tracking
+  // Also clean up any orphaned temp containers not in our tracking
   const allContainers = await browser.contextualIdentities.query({});
   for (const container of allContainers) {
-    if (container.name === 'Vessel' && !usedContainers.has(container.cookieStoreId)) {
+    if (container.name === TEMP_CONTAINER.name && !usedContainers.has(container.cookieStoreId)) {
       try {
         await browser.contextualIdentities.remove(container.cookieStoreId);
-      } catch (e) {
-        // Ignore errors
+      } catch (error) {
+        console.warn('Failed to remove orphaned temp container:', container.cookieStoreId, error);
       }
     }
   }
@@ -163,7 +169,7 @@ async function reopenInContainer(tab, cookieStoreId, url) {
 
   // Use provided URL or fall back to tab.url
   const targetUrl = url || tab.url;
-  if (!targetUrl || targetUrl === 'about:blank' || targetUrl === 'about:newtab') {
+  if (isIgnoredUrl(targetUrl)) {
     return;
   }
 
@@ -180,7 +186,7 @@ async function reopenInContainer(tab, cookieStoreId, url) {
 
     // Mark new tab so we don't re-process it
     recentlyCreatedTabs.add(newTab.id);
-    setTimeout(() => recentlyCreatedTabs.delete(newTab.id), 2000);
+    setTimeout(() => recentlyCreatedTabs.delete(newTab.id), TIMING.recentTabExpiry);
 
     await browser.tabs.remove(tab.id);
   } finally {
@@ -188,8 +194,14 @@ async function reopenInContainer(tab, cookieStoreId, url) {
   }
 }
 
+function isIgnoredUrl(url) {
+  if (!url) return true;
+  return IGNORED_SCHEMES.some(scheme => url.startsWith(scheme)) ||
+         IGNORED_URLS.includes(url);
+}
+
 async function handleNavigation(tabId, url) {
-  if (!url || url.startsWith('about:') || url.startsWith('moz-extension:')) {
+  if (isIgnoredUrl(url)) {
     return;
   }
 
@@ -210,7 +222,7 @@ async function handleNavigation(tabId, url) {
   }
 
   // Check if already in a non-default container that we didn't create
-  const isInPermanentContainer = tab.cookieStoreId !== 'firefox-default' &&
+  const isInPermanentContainer = tab.cookieStoreId !== FIREFOX_DEFAULT_CONTAINER &&
     !state.tempContainers.includes(tab.cookieStoreId);
 
   // 1. Check for direct domain match or subdomain match in rules
@@ -241,7 +253,7 @@ async function handleNavigation(tabId, url) {
   }
 
   // 3. No rules match - determine what to do
-  if (tab.cookieStoreId === 'firefox-default') {
+  if (tab.cookieStoreId === FIREFOX_DEFAULT_CONTAINER) {
     // From default container - use temp container
     const tempContainer = await createTempContainer();
     await reopenInContainer(tab, tempContainer.cookieStoreId, url);
@@ -333,7 +345,7 @@ browser.tabs.onRemoved.addListener((tabId) => {
   }
 
   // Debounce cleanup
-  setTimeout(cleanupEmptyTempContainers, 500);
+  setTimeout(cleanupEmptyTempContainers, TIMING.cleanupDebounce);
 });
 
 // Temporary domain allowances: domain → { cookieStoreId, tabId }
@@ -375,7 +387,7 @@ function updateBrowserActionBadge() {
 
   if (totalPending > 0) {
     browser.browserAction.setBadgeText({ text: String(totalPending) });
-    browser.browserAction.setBadgeBackgroundColor({ color: '#ff6b6b' });
+    browser.browserAction.setBadgeBackgroundColor({ color: BADGE_COLORS.pending });
   } else {
     browser.browserAction.setBadgeText({ text: '' });
   }
@@ -403,7 +415,7 @@ browser.webRequest.onBeforeRequest.addListener(
     }
 
     // Skip extension requests
-    if (details.url.startsWith('moz-extension:')) {
+    if (IGNORED_SCHEMES.some(scheme => details.url.startsWith(scheme))) {
       return {};
     }
 
@@ -566,7 +578,7 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       const allContainers = await browser.contextualIdentities.query({});
       // Filter out temp containers (by name and tracked IDs)
       return allContainers.filter(c =>
-        c.name !== 'Vessel' && !state.tempContainers.includes(c.cookieStoreId)
+        c.name !== TEMP_CONTAINER.name && !state.tempContainers.includes(c.cookieStoreId)
       );
     }
 
@@ -621,7 +633,7 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       const targetCookieStoreId = tempContainer ? tempContainer.cookieStoreId : message.cookieStoreId;
 
       recentlyCreatedTabs.add(message.tabId);
-      setTimeout(() => recentlyCreatedTabs.delete(message.tabId), 2000);
+      setTimeout(() => recentlyCreatedTabs.delete(message.tabId), TIMING.recentTabExpiry);
 
       await browser.tabs.update(message.tabId, { url: message.url });
 
@@ -633,7 +645,7 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
           active: true
         });
         recentlyCreatedTabs.add(newTab.id);
-        setTimeout(() => recentlyCreatedTabs.delete(newTab.id), 2000);
+        setTimeout(() => recentlyCreatedTabs.delete(newTab.id), TIMING.recentTabExpiry);
         await browser.tabs.remove(message.tabId);
       }
 

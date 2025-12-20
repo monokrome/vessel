@@ -2,10 +2,13 @@
  * @vitest-environment jsdom
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { createBrowserMock } from '../mocks/browser/index.js';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Load the sidebar HTML
 const sidebarHtml = fs.readFileSync(
@@ -18,6 +21,9 @@ describe('Sidebar UI', () => {
   let state;
 
   beforeEach(() => {
+    // Reset modules to ensure fresh imports
+    vi.resetModules();
+
     // Reset DOM
     document.body.innerHTML = '';
 
@@ -46,9 +52,13 @@ describe('Sidebar UI', () => {
         if (message.type === 'getContainers') {
           return browser.contextualIdentities._getContainers();
         }
+        if (message.type === 'getPendingRequests') {
+          return [];
+        }
         return null;
       },
     });
+    browser.tabs.query = async () => [{ id: 123, active: true }];
 
     globalThis.browser = browser;
 
@@ -58,17 +68,20 @@ describe('Sidebar UI', () => {
     document.body.innerHTML = doc.body.innerHTML;
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function loadSidebar() {
+    // Dynamically import the sidebar module
+    await import('../../src/sidebar/sidebar.js');
+    // Wait for initialization
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+
   describe('Container Rename', () => {
     it('shows input field when clicking container title', async () => {
-      // Load and execute sidebar.js
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      // Wait for initialization
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Click on a container to show detail view
       const containerItem = document.querySelector('.container-item');
@@ -93,13 +106,7 @@ describe('Sidebar UI', () => {
     });
 
     it('saves new name when pressing Enter', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -131,13 +138,7 @@ describe('Sidebar UI', () => {
     });
 
     it('cancels rename when pressing Escape', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to UBer container (the typo one)
       const containerItems = document.querySelectorAll('.container-item');
@@ -168,13 +169,7 @@ describe('Sidebar UI', () => {
     });
 
     it('saves on blur', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -201,13 +196,7 @@ describe('Sidebar UI', () => {
     });
 
     it('does not save empty name', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -237,13 +226,7 @@ describe('Sidebar UI', () => {
 
   describe('Exclusion Management', () => {
     it('shows add exclusion input in detail view', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -275,18 +258,14 @@ describe('Sidebar UI', () => {
             addedExclusion = { cookieStoreId: message.cookieStoreId, domain: message.domain };
             return { success: true };
           }
+          if (message.type === 'getPendingRequests') return [];
           return null;
         },
       });
+      browser.tabs.query = async () => [{ id: 123, active: true }];
       globalThis.browser = browser;
 
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -325,18 +304,14 @@ describe('Sidebar UI', () => {
             addedExclusion = { cookieStoreId: message.cookieStoreId, domain: message.domain };
             return { success: true };
           }
+          if (message.type === 'getPendingRequests') return [];
           return null;
         },
       });
+      browser.tabs.query = async () => [{ id: 123, active: true }];
       globalThis.browser = browser;
 
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -373,18 +348,14 @@ describe('Sidebar UI', () => {
             addedExclusion = { domain: message.domain };
             return { success: true };
           }
+          if (message.type === 'getPendingRequests') return [];
           return null;
         },
       });
+      browser.tabs.query = async () => [{ id: 123, active: true }];
       globalThis.browser = browser;
 
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -418,18 +389,14 @@ describe('Sidebar UI', () => {
             addedExclusion = { domain: message.domain };
             return { success: true };
           }
+          if (message.type === 'getPendingRequests') return [];
           return null;
         },
       });
+      browser.tabs.query = async () => [{ id: 123, active: true }];
       globalThis.browser = browser;
 
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -450,13 +417,7 @@ describe('Sidebar UI', () => {
 
   describe('Tab Navigation', () => {
     it('shows containers tab by default', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       expect(document.getElementById('listView').style.display).toBe('block');
       expect(document.getElementById('pendingView').style.display).toBe('none');
@@ -465,13 +426,7 @@ describe('Sidebar UI', () => {
     });
 
     it('switches to pending tab when clicked', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Click pending tab
       document.getElementById('tabPending').click();
@@ -483,13 +438,7 @@ describe('Sidebar UI', () => {
     });
 
     it('switches back to containers tab', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Switch to pending then back
       document.getElementById('tabPending').click();
@@ -501,13 +450,7 @@ describe('Sidebar UI', () => {
     });
 
     it('preserves detail view when switching back to containers', async () => {
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await loadSidebar();
 
       // Navigate to container detail
       const containerItem = document.querySelector('.container-item');
@@ -557,14 +500,7 @@ describe('Sidebar UI', () => {
 
     it('shows empty state when no pending requests', async () => {
       setupBrowserWithPending([]);
-
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await loadSidebar();
 
       // Switch to pending tab
       document.getElementById('tabPending').click();
@@ -578,14 +514,7 @@ describe('Sidebar UI', () => {
         { domain: 'tracker.com', count: 5, firstSeen: Date.now() },
         { domain: 'analytics.io', count: 2, firstSeen: Date.now() },
       ]);
-
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await loadSidebar();
 
       // Switch to pending tab
       document.getElementById('tabPending').click();
@@ -602,14 +531,7 @@ describe('Sidebar UI', () => {
         { domain: 'tracker.com', count: 5, firstSeen: Date.now() },
         { domain: 'analytics.io', count: 2, firstSeen: Date.now() },
       ]);
-
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await loadSidebar();
 
       const badge = document.getElementById('pendingBadge');
       expect(badge.style.display).toBe('inline');
@@ -618,14 +540,7 @@ describe('Sidebar UI', () => {
 
     it('hides badge when no pending requests', async () => {
       setupBrowserWithPending([]);
-
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await loadSidebar();
 
       const badge = document.getElementById('pendingBadge');
       expect(badge.style.display).toBe('none');
@@ -658,13 +573,7 @@ describe('Sidebar UI', () => {
       browser.tabs.query = async () => [{ id: 123, active: true }];
       globalThis.browser = browser;
 
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await loadSidebar();
 
       // Switch to pending tab
       document.getElementById('tabPending').click();
@@ -706,13 +615,7 @@ describe('Sidebar UI', () => {
       browser.tabs.query = async () => [{ id: 123, active: true }];
       globalThis.browser = browser;
 
-      const sidebarJs = fs.readFileSync(
-        path.resolve(__dirname, '../../src/sidebar/sidebar.js'),
-        'utf-8'
-      );
-      eval(sidebarJs);
-
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await loadSidebar();
 
       // Switch to pending tab
       document.getElementById('tabPending').click();

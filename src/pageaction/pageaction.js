@@ -1,14 +1,5 @@
-const CONTAINER_COLORS = {
-  blue: '#37adff',
-  turquoise: '#00c79a',
-  green: '#51cd00',
-  yellow: '#ffcb00',
-  orange: '#ff9f00',
-  red: '#ff613d',
-  pink: '#ff4bda',
-  purple: '#af51f5',
-  toolbar: '#8f8f9d'
-};
+import { escapeHtml, escapeAttr, getContainerColor } from '../lib/ui-shared.js';
+import { DEFAULT_CONTAINER } from '../lib/constants.js';
 
 let currentDomain = null;
 let currentTab = null;
@@ -18,7 +9,6 @@ let pendingRequests = [];
 let pendingBlendDomain = null;
 
 async function init() {
-  // Get current tab
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   currentTab = tabs[0];
 
@@ -27,22 +17,20 @@ async function init() {
     return;
   }
 
-  // Extract domain
   try {
     const url = new URL(currentTab.url);
     currentDomain = url.hostname;
-  } catch {
+  } catch (error) {
+    console.warn('Failed to parse URL:', error);
     document.getElementById('domain').textContent = 'Invalid URL';
     return;
   }
 
   document.getElementById('domain').textContent = currentDomain;
 
-  // Load state and containers
   state = await browser.runtime.sendMessage({ type: 'getState' });
   containers = await browser.runtime.sendMessage({ type: 'getContainers' });
 
-  // Check if domain is already assigned
   const existingRule = state.domainRules[currentDomain];
   if (existingRule) {
     document.getElementById('currentContainer').textContent =
@@ -71,13 +59,11 @@ function renderPendingList() {
     return;
   }
 
-  // Get current container name for the "Add to container" button
   const existingRule = state.domainRules[currentDomain];
   const containerName = existingRule?.containerName || 'this container';
 
   section.style.display = 'block';
   list.innerHTML = pendingRequests.map(req => {
-    // Check if this domain belongs to another container
     const domainRule = state.domainRules[req.domain];
     const isCrossContainer = domainRule && domainRule.cookieStoreId !== currentTab.cookieStoreId;
 
@@ -112,7 +98,7 @@ function renderContainerList() {
   const currentContainerId = existingRule?.cookieStoreId;
 
   list.innerHTML = containers.map(container => {
-    const color = CONTAINER_COLORS[container.color] || '#8f8f9d';
+    const color = getContainerColor(container.color);
     const isActive = container.cookieStoreId === currentContainerId;
     return `
       <div class="container-item ${isActive ? 'active' : ''}" data-id="${container.cookieStoreId}" data-name="${escapeAttr(container.name)}">
@@ -124,16 +110,6 @@ function renderContainerList() {
   }).join('');
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-function escapeAttr(str) {
-  return str.replace(/"/g, '&quot;');
-}
-
 // Event: Click container to assign domain
 document.getElementById('containerList').addEventListener('click', async (e) => {
   const item = e.target.closest('.container-item');
@@ -142,16 +118,13 @@ document.getElementById('containerList').addEventListener('click', async (e) => 
   const containerName = item.dataset.name;
   const cookieStoreId = item.dataset.id;
 
-  // Check if clicking the already-assigned container (to remove)
   const existingRule = state.domainRules[currentDomain];
   if (existingRule && existingRule.cookieStoreId === cookieStoreId) {
-    // Remove the rule
     await browser.runtime.sendMessage({
       type: 'removeRule',
       domain: currentDomain
     });
   } else {
-    // Add the rule
     await browser.runtime.sendMessage({
       type: 'addRule',
       domain: currentDomain,
@@ -159,7 +132,6 @@ document.getElementById('containerList').addEventListener('click', async (e) => 
     });
   }
 
-  // Reload and re-render
   state = await browser.runtime.sendMessage({ type: 'getState' });
 
   const newRule = state.domainRules[currentDomain];
@@ -179,21 +151,18 @@ document.getElementById('createContainerBtn').addEventListener('click', async ()
   const name = input.value.trim();
   if (!name || !currentDomain) return;
 
-  // Create container
   await browser.contextualIdentities.create({
     name,
-    color: 'blue',
-    icon: 'briefcase'
+    color: DEFAULT_CONTAINER.color,
+    icon: DEFAULT_CONTAINER.icon
   });
 
-  // Add rule for current domain
   await browser.runtime.sendMessage({
     type: 'addRule',
     domain: currentDomain,
     containerName: name
   });
 
-  // Reload
   input.value = '';
   state = await browser.runtime.sendMessage({ type: 'getState' });
   containers = await browser.runtime.sendMessage({ type: 'getContainers' });
@@ -218,7 +187,6 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
   const existingRule = state.domainRules[currentDomain];
 
   if (action === 'allow') {
-    // Add to current container permanently
     await browser.runtime.sendMessage({
       type: 'allowDomain',
       tabId: currentTab.id,
@@ -227,7 +195,6 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
       containerName: existingRule?.containerName
     });
   } else if (action === 'blend') {
-    // Skip confirmation if user opted out of warnings
     if (state.hideBlendWarning) {
       await performBlend(domain);
       state = await browser.runtime.sendMessage({ type: 'getState' });
@@ -235,7 +202,6 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
       return;
     }
 
-    // Show confirmation dialog before blending
     const domainRule = state.domainRules[domain];
     const currentContainerRule = state.domainRules[currentDomain];
     const sourceContainerName = domainRule?.containerName || 'another container';
@@ -249,14 +215,12 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     document.getElementById('confirmOverlay').classList.add('active');
     return;
   } else if (action === 'once') {
-    // Allow this time only
     await browser.runtime.sendMessage({
       type: 'allowOnce',
       tabId: currentTab.id,
       domain: domain
     });
   } else if (action === 'block') {
-    // Block and add to exclusion list
     await browser.runtime.sendMessage({
       type: 'blockDomain',
       tabId: currentTab.id,
@@ -266,12 +230,10 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     });
   }
 
-  // Reload state and re-render
   state = await browser.runtime.sendMessage({ type: 'getState' });
   await loadPendingRequests();
 });
 
-// Helper to perform blend action
 async function performBlend(domain) {
   await browser.runtime.sendMessage({
     type: 'addBlend',
@@ -301,7 +263,6 @@ document.getElementById('confirmBlend').addEventListener('click', async () => {
   pendingBlendDomain = null;
   document.getElementById('confirmOverlay').classList.remove('active');
 
-  // Save preference if checkbox was checked
   if (dontShowAgain) {
     await browser.runtime.sendMessage({
       type: 'setHideBlendWarning',
@@ -311,7 +272,6 @@ document.getElementById('confirmBlend').addEventListener('click', async () => {
 
   await performBlend(domain);
 
-  // Reload state and re-render
   state = await browser.runtime.sendMessage({ type: 'getState' });
   await loadPendingRequests();
 });
