@@ -33,5 +33,6 @@ jobs:
           pnpm web-ext sign \
             --source-dir src \
             --channel listed \
+            --amo-metadata amo-metadata.json \
             --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
             --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
