@@ -13,10 +13,100 @@ const CONTAINER_COLORS = {
 let state = null;
 let containers = [];
 let selectedContainer = null;
+let currentTabId = null;
+let pendingRefreshInterval = null;
+let currentTab = 'containers'; // 'containers' or 'pending'
 
 async function loadData() {
   state = await browser.runtime.sendMessage({ type: 'getState' });
   containers = await browser.runtime.sendMessage({ type: 'getContainers' });
+}
+
+async function getCurrentTab() {
+  const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+  return tabs[0] || null;
+}
+
+async function loadPendingRequests() {
+  if (!currentTabId) return [];
+  try {
+    return await browser.runtime.sendMessage({
+      type: 'getPendingRequests',
+      tabId: currentTabId
+    });
+  } catch {
+    return [];
+  }
+}
+
+function renderPendingRequests(pending) {
+  const list = document.getElementById('pendingList');
+  const badge = document.getElementById('pendingBadge');
+
+  // Update badge
+  if (!pending || pending.length === 0) {
+    badge.style.display = 'none';
+    list.innerHTML = '<div class="pending-empty">No pending requests for this tab</div>';
+    return;
+  }
+
+  badge.style.display = 'inline';
+  badge.textContent = pending.length;
+
+  list.innerHTML = pending.map(({ domain, count }) => `
+    <div class="pending-item" data-domain="${escapeHtml(domain)}">
+      <span class="pending-domain" title="${escapeHtml(domain)}">${escapeHtml(domain)}</span>
+      <span class="pending-count">${count} req${count > 1 ? 's' : ''}</span>
+      <div class="pending-actions">
+        <button class="allow-btn" data-domain="${escapeHtml(domain)}">Allow</button>
+        <button class="block-btn" data-domain="${escapeHtml(domain)}">Block</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+
+  // Update tab buttons
+  document.getElementById('tabContainers').classList.toggle('active', tab === 'containers');
+  document.getElementById('tabPending').classList.toggle('active', tab === 'pending');
+
+  // Update views
+  if (tab === 'containers') {
+    if (selectedContainer) {
+      document.getElementById('listView').style.display = 'none';
+      document.getElementById('detailView').style.display = 'block';
+    } else {
+      document.getElementById('listView').style.display = 'block';
+      document.getElementById('detailView').style.display = 'none';
+    }
+    document.getElementById('pendingView').style.display = 'none';
+  } else {
+    document.getElementById('listView').style.display = 'none';
+    document.getElementById('detailView').style.display = 'none';
+    document.getElementById('pendingView').style.display = 'block';
+  }
+}
+
+async function refreshPending() {
+  const pending = await loadPendingRequests();
+  renderPendingRequests(pending);
+}
+
+function startPendingRefresh() {
+  if (pendingRefreshInterval) {
+    clearInterval(pendingRefreshInterval);
+  }
+  refreshPending();
+  pendingRefreshInterval = setInterval(refreshPending, 1000);
+}
+
+function stopPendingRefresh() {
+  if (pendingRefreshInterval) {
+    clearInterval(pendingRefreshInterval);
+    pendingRefreshInterval = null;
+  }
 }
 
 function getDomainsForContainer(cookieStoreId) {
@@ -44,20 +134,21 @@ function updateToggle(container, value) {
 }
 
 function showListView() {
-  document.getElementById('listView').style.display = 'block';
-  document.getElementById('detailView').style.display = 'none';
   selectedContainer = null;
   renderContainerList();
   updateToggle(
     document.getElementById('globalSubdomainsToggle'),
     state.globalSubdomains
   );
+  updateToggle(
+    document.getElementById('stripWwwToggle'),
+    state.stripWww
+  );
+  switchTab('containers');
 }
 
 function showDetailView(container) {
   selectedContainer = container;
-  document.getElementById('listView').style.display = 'none';
-  document.getElementById('detailView').style.display = 'block';
   document.getElementById('detailTitle').textContent = container.name;
 
   const containerSetting = state.containerSubdomains[container.cookieStoreId] ?? null;
@@ -68,6 +159,7 @@ function showDetailView(container) {
 
   renderDomainList();
   renderExclusionList();
+  switchTab('containers');
 }
 
 function renderContainerList() {
@@ -204,6 +296,16 @@ document.getElementById('globalSubdomainsToggle').addEventListener('click', asyn
   updateToggle(document.getElementById('globalSubdomainsToggle'), value);
 });
 
+// Event: Strip www toggle
+document.getElementById('stripWwwToggle').addEventListener('click', async (e) => {
+  if (e.target.tagName !== 'BUTTON') return;
+
+  const value = parseValue(e.target.dataset.value);
+  await browser.runtime.sendMessage({ type: 'setStripWww', value });
+  await loadData();
+  updateToggle(document.getElementById('stripWwwToggle'), value);
+});
+
 // Event: Container subdomains toggle
 document.getElementById('containerSubdomainsToggle').addEventListener('click', async (e) => {
   if (e.target.tagName !== 'BUTTON' || !selectedContainer) return;
@@ -304,6 +406,27 @@ document.getElementById('deleteContainerBtn').addEventListener('click', async ()
   showListView();
 });
 
+// Event: Add exclusion
+document.getElementById('addExclusionBtn').addEventListener('click', async () => {
+  const input = document.getElementById('newExclusion');
+  const domain = input.value.trim().toLowerCase();
+  if (!domain || !selectedContainer) return;
+
+  await browser.runtime.sendMessage({
+    type: 'addExclusion',
+    cookieStoreId: selectedContainer.cookieStoreId,
+    domain
+  });
+
+  input.value = '';
+  await loadData();
+  renderExclusionList();
+});
+
+document.getElementById('newExclusion').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') document.getElementById('addExclusionBtn').click();
+});
+
 // Event: Exclusion list clicks (remove)
 document.getElementById('exclusionList').addEventListener('click', async (e) => {
   if (e.target.classList.contains('remove-exclusion-btn')) {
@@ -318,8 +441,63 @@ document.getElementById('exclusionList').addEventListener('click', async (e) => 
   }
 });
 
+// Event: Tab clicks
+document.getElementById('tabContainers').addEventListener('click', () => {
+  if (selectedContainer) {
+    showDetailView(selectedContainer);
+  } else {
+    showListView();
+  }
+});
+
+document.getElementById('tabPending').addEventListener('click', () => {
+  switchTab('pending');
+});
+
+// Event: Pending list clicks (allow/block)
+document.getElementById('pendingList').addEventListener('click', async (e) => {
+  if (!currentTabId) return;
+
+  const domain = e.target.dataset.domain;
+  if (!domain) return;
+
+  if (e.target.classList.contains('allow-btn')) {
+    await browser.runtime.sendMessage({
+      type: 'allowOnce',
+      tabId: currentTabId,
+      domain
+    });
+    await refreshPending();
+  } else if (e.target.classList.contains('block-btn')) {
+    await browser.runtime.sendMessage({
+      type: 'blockDomain',
+      tabId: currentTabId,
+      domain
+    });
+    await refreshPending();
+  }
+});
+
+// Listen for tab changes to update pending requests
+browser.tabs.onActivated.addListener(async (activeInfo) => {
+  currentTabId = activeInfo.tabId;
+  await refreshPending();
+});
+
+// Listen for tab updates (URL changes)
+browser.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (tabId === currentTabId && changeInfo.status === 'loading') {
+    await refreshPending();
+  }
+});
+
 // Init
 (async () => {
+  const tab = await getCurrentTab();
+  if (tab) {
+    currentTabId = tab.id;
+  }
   await loadData();
   showListView();
+  startPendingRefresh();
 })();

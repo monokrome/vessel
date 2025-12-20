@@ -250,6 +250,33 @@
       border-top: 1px solid var(--border-color);
     }
 
+    /* Two-state toggle */
+    .toggle-2 {
+      display: flex;
+      background: var(--bg-secondary);
+      border-radius: 4px;
+      overflow: hidden;
+      font-size: 10px;
+    }
+
+    .toggle-2 button {
+      padding: 4px 10px;
+      background: transparent;
+      color: var(--text-secondary);
+      border-radius: 0;
+      font-size: 10px;
+      font-weight: normal;
+    }
+
+    .toggle-2 button:hover {
+      background: var(--bg-hover);
+    }
+
+    .toggle-2 button.active {
+      background: var(--btn-active-bg);
+      color: var(--btn-text);
+    }
+
     /* Three-state toggle */
     .toggle-3 {
       display: flex;
@@ -332,10 +359,130 @@
       font-size: 11px;
       color: var(--exclusion-color);
     }
+
+    /* Bottom tab bar */
+    .tab-bar {
+      display: flex;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-color);
+      z-index: 100;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 10px 8px;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      color: var(--text-secondary);
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .tab-btn:hover {
+      background: var(--bg-hover);
+    }
+
+    .tab-btn.active {
+      color: var(--link-color);
+      background: var(--bg-primary);
+    }
+
+    .tab-badge {
+      background: var(--danger);
+      color: white;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 8px;
+      font-weight: 600;
+      min-width: 16px;
+      text-align: center;
+    }
+
+    .tab-content {
+      padding-bottom: 44px;
+    }
+
+    /* Pending view */
+    .pending-view {
+      display: none;
+    }
+
+    .pending-list {
+      overflow-y: auto;
+    }
+
+    .pending-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      gap: 8px;
+    }
+
+    .pending-domain {
+      flex: 1;
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pending-count {
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-right: 4px;
+    }
+
+    .pending-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .pending-actions button {
+      padding: 4px 10px;
+      font-size: 10px;
+    }
+
+    .allow-btn {
+      background: #51cd00;
+      color: white;
+    }
+
+    .allow-btn:hover {
+      background: #45b000;
+    }
+
+    .block-btn {
+      background: var(--danger);
+      color: white;
+    }
+
+    .block-btn:hover {
+      background: var(--danger-hover);
+    }
+
+    .pending-empty {
+      padding: 40px 12px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-style: italic;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
-  <div id="listView">
+  <div id="listView" class="tab-content">
     <header>
       <h1>Vessel</h1>
     </header>
@@ -345,6 +492,13 @@
         <button data-value="false">Off</button>
         <button data-value="ask">Ask</button>
         <button data-value="true">On</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Treat www as parent domain</span>
+      <div class="toggle-2" id="stripWwwToggle">
+        <button data-value="true">On</button>
+        <button data-value="false">Off</button>
       </div>
     </div>
     <div class="container-list" id="containerList">
@@ -358,7 +512,7 @@
     </div>
   </div>
 
-  <div id="detailView" class="detail-view">
+  <div id="detailView" class="detail-view tab-content">
     <header>
       <button class="back-btn" id="backBtn">←</button>
       <h1 id="detailTitle">Container</h1>
@@ -380,10 +534,33 @@
       <div class="empty-state">No domains</div>
     </div>
     <div class="section-header">Excluded Subdomains</div>
+    <div class="add-form">
+      <input type="text" id="newExclusion" placeholder="Add exclusion (e.g. sub.example.com)">
+      <button id="addExclusionBtn">+</button>
+    </div>
     <div class="exclusion-list" id="exclusionList">
       <div class="empty-state">No exclusions</div>
     </div>
     <button class="delete-container" id="deleteContainerBtn">Delete Container</button>
+  </div>
+
+  <div id="pendingView" class="pending-view tab-content">
+    <header>
+      <h1>Pending Requests</h1>
+    </header>
+    <div class="pending-list" id="pendingList">
+      <div class="pending-empty">No pending requests for this tab</div>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabContainers" data-tab="containers">
+      Containers
+    </button>
+    <button class="tab-btn" id="tabPending" data-tab="pending">
+      Pending
+      <span class="tab-badge" id="pendingBadge" style="display: none;">0</span>
+    </button>
   </div>
 
   <script src="sidebar.js"></script>

@@ -10,8 +10,10 @@
 import {
   extractDomain,
   findMatchingRule,
+  isSubdomainOf,
   shouldBlockRequest,
 } from './lib/domain.js';
+import { createPendingTracker } from './lib/pending.js';
 
 const TEMP_CONTAINER_NAME = 'Vessel';
 const TEMP_CONTAINER_COLOR = 'toolbar';
@@ -23,6 +25,7 @@ let state = {
   // Global settings
   globalSubdomains: false, // Global default: true/false/'ask'
   hideBlendWarning: false, // Hide blend confirmation dialog
+  stripWww: false, // Treat www.example.com as example.com when matching rules
   // Container-level subdomain defaults: cookieStoreId → true/false/'ask'/null (inherit)
   containerSubdomains: {},
   // Per-container exclusions: cookieStoreId → [domains...]
@@ -46,6 +49,7 @@ async function loadState() {
   const stored = await browser.storage.local.get([
     'globalSubdomains',
     'hideBlendWarning',
+    'stripWww',
     'containerSubdomains',
     'containerExclusions',
     'containerBlends',
@@ -54,6 +58,7 @@ async function loadState() {
   ]);
   state.globalSubdomains = stored.globalSubdomains ?? false;
   state.hideBlendWarning = stored.hideBlendWarning ?? false;
+  state.stripWww = stored.stripWww ?? false;
   state.containerSubdomains = stored.containerSubdomains || {};
   state.containerExclusions = stored.containerExclusions || {};
   state.containerBlends = stored.containerBlends || {};
@@ -65,6 +70,7 @@ async function saveState() {
   await browser.storage.local.set({
     globalSubdomains: state.globalSubdomains,
     hideBlendWarning: state.hideBlendWarning,
+    stripWww: state.stripWww,
     containerSubdomains: state.containerSubdomains,
     containerExclusions: state.containerExclusions,
     containerBlends: state.containerBlends,
@@ -234,10 +240,29 @@ async function handleNavigation(tabId, url) {
     return;
   }
 
-  // 3. No rules match - use temp container
+  // 3. No rules match - determine what to do
   if (tab.cookieStoreId === 'firefox-default') {
+    // From default container - use temp container
     const tempContainer = await createTempContainer();
     await reopenInContainer(tab, tempContainer.cookieStoreId, url);
+    return;
+  }
+
+  // 4. Already in a permanent container - check if URL belongs there
+  if (isInPermanentContainer) {
+    // Check if domain is a subdomain of any domain ruled for THIS container
+    const containerRules = Object.entries(state.domainRules)
+      .filter(([_, r]) => r.cookieStoreId === tab.cookieStoreId);
+
+    const belongsToThisContainer = containerRules.some(([ruledDomain]) =>
+      domain === ruledDomain || isSubdomainOf(domain, ruledDomain)
+    );
+
+    if (!belongsToThisContainer) {
+      // URL doesn't belong to this container's domains - move to temp
+      const tempContainer = await createTempContainer();
+      await reopenInContainer(tab, tempContainer.cookieStoreId, url);
+    }
   }
 }
 
@@ -248,8 +273,8 @@ async function handleNavigation(tabId, url) {
 browser.webNavigation.onBeforeNavigate.addListener(
   async (details) => {
     if (details.frameId !== 0) return; // Only main frame
-    // Clear pending requests on any navigation (including refresh)
-    clearPendingRequestsForTab(details.tabId);
+    // Clear pending domains on any navigation (including refresh)
+    pendingTracker.clearPendingDomainsForTab(details.tabId);
     await handleNavigation(details.tabId, details.url);
   },
   { url: [{ schemes: ['http', 'https'] }] }
@@ -262,37 +287,17 @@ browser.webNavigation.onBeforeNavigate.addListener(
 // Cache for tab info to avoid async lookups in blocking handler
 const tabInfoCache = new Map();
 
-function clearPendingRequestsForTab(tabId) {
-  const tabRequests = thirdPartyRequestsPerTab.get(tabId);
-  if (tabRequests) {
-    // Cancel all pending requests for this tab
-    for (const domainData of tabRequests.values()) {
-      for (const requestId of domainData.requestIds) {
-        const pending = pendingRequests.get(requestId);
-        if (pending) {
-          pending.resolve({ cancel: true });
-          pendingRequests.delete(requestId);
-        }
-      }
-    }
-    thirdPartyRequestsPerTab.delete(tabId);
-    updateBrowserActionBadge();
-  }
-  browser.pageAction.setTitle({
-    tabId,
-    title: 'Add domain to container'
-  });
-}
-
-async function updateTabCache(tabId) {
+async function updateTabCache(tabId, isRealNavigation = false) {
   try {
     const tab = await browser.tabs.get(tabId);
     const domain = tab.url ? extractDomain(tab.url) : null;
     const oldInfo = tabInfoCache.get(tabId);
 
-    // Clear third-party tracking on any URL change (including refresh)
-    if (oldInfo && oldInfo.url !== tab.url) {
-      clearPendingRequestsForTab(tabId);
+    // Only clear pending requests on actual navigations (not pushState/replaceState)
+    // The onBeforeNavigate event handles clearing for real navigations,
+    // but we also need to clear when the tab is loading (status change)
+    if (isRealNavigation && oldInfo && oldInfo.url !== tab.url) {
+      pendingTracker.clearPendingDomainsForTab(tabId);
     }
 
     tabInfoCache.set(tabId, {
@@ -302,87 +307,71 @@ async function updateTabCache(tabId) {
     });
   } catch {
     tabInfoCache.delete(tabId);
-    clearPendingRequestsForTab(tabId);
+    pendingTracker.clearPendingDomainsForTab(tabId);
   }
 }
 
 // Keep cache updated
 browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.url || changeInfo.status === 'complete') {
-    await updateTabCache(tabId);
+    // Only treat as real navigation if status changed to 'loading'
+    // This distinguishes actual page loads from pushState/replaceState
+    const isRealNavigation = changeInfo.status === 'loading';
+    await updateTabCache(tabId, isRealNavigation);
   }
 });
 
 browser.tabs.onRemoved.addListener((tabId) => {
   tabInfoCache.delete(tabId);
-  thirdPartyRequestsPerTab.delete(tabId);
+  pendingTracker.clearPendingDomainsForTab(tabId);
+
+  // Clean up temp allowances for this tab
+  for (const [domain, info] of tempAllowedDomains) {
+    if (info.tabId === tabId) {
+      tempAllowedDomains.delete(domain);
+    }
+  }
+
   // Debounce cleanup
   setTimeout(cleanupEmptyTempContainers, 500);
 });
 
-// Track third-party requests per tab for page action display
-const thirdPartyRequestsPerTab = new Map();
+// Temporary domain allowances: domain → { cookieStoreId, tabId }
+// Allows requests to these domains without persisting rules
+const tempAllowedDomains = new Map();
 
-// Pending requests waiting for user decision
-// Map<requestId, { resolve, tabId, domain, url, type, timestamp }>
-const pendingRequests = new Map();
-
-// Request timeout (ms) - block if user doesn't respond
-const REQUEST_TIMEOUT = 30000;
-
-function addPendingRequest(requestId, tabId, domain, url, type) {
-  if (!thirdPartyRequestsPerTab.has(tabId)) {
-    thirdPartyRequestsPerTab.set(tabId, new Map());
-  }
-  const tabRequests = thirdPartyRequestsPerTab.get(tabId);
-
-  // Track by domain
-  const existing = tabRequests.get(domain) || {
-    domain,
-    count: 0,
-    pending: 0,
-    requestIds: []
-  };
-  existing.count++;
-  existing.pending++;
-  existing.requestIds.push(requestId);
-  tabRequests.set(domain, existing);
-
-  updatePageActionBadge(tabId);
-}
-
-function updatePageActionBadge(tabId) {
-  const tabRequests = thirdPartyRequestsPerTab.get(tabId);
-  if (!tabRequests) return;
-
-  let totalPending = 0;
-  for (const req of tabRequests.values()) {
-    totalPending += req.pending;
+// Badge update handlers for pending tracker
+async function updatePageActionBadge(tabId) {
+  if (tabId === null) {
+    updateBrowserActionBadge();
+    return;
   }
 
-  if (totalPending > 0) {
-    browser.pageAction.setTitle({
-      tabId,
-      title: `Vessel - ${totalPending} requests waiting`
-    });
+  const pendingCount = pendingTracker.getPendingDomainCount(tabId);
+
+  if (pendingCount > 0) {
+    try {
+      await browser.pageAction.show(tabId);
+      browser.pageAction.setTitle({
+        tabId,
+        title: `Vessel - ${pendingCount} domain${pendingCount > 1 ? 's' : ''} waiting`
+      });
+    } catch {
+      // Tab may have been closed
+    }
   } else {
-    browser.pageAction.setTitle({
-      tabId,
-      title: 'Add domain to container'
-    });
+    try {
+      await browser.pageAction.hide(tabId);
+    } catch {
+      // Tab may have been closed
+    }
   }
 
-  // Update browser action badge with total pending across all tabs
   updateBrowserActionBadge();
 }
 
 function updateBrowserActionBadge() {
-  let totalPending = 0;
-  for (const tabRequests of thirdPartyRequestsPerTab.values()) {
-    for (const req of tabRequests.values()) {
-      totalPending += req.pending;
-    }
-  }
+  const totalPending = pendingTracker.getTotalPendingCount();
 
   if (totalPending > 0) {
     browser.browserAction.setBadgeText({ text: String(totalPending) });
@@ -391,6 +380,12 @@ function updateBrowserActionBadge() {
     browser.browserAction.setBadgeText({ text: '' });
   }
 }
+
+// Create pending tracker instance with 60 second timeout
+const pendingTracker = createPendingTracker({
+  onBadgeUpdate: updatePageActionBadge,
+  requestTimeout: 60000,
+});
 
 function isThirdParty(requestDomain, tabDomain) {
   if (requestDomain === tabDomain) return false;
@@ -428,6 +423,12 @@ browser.webRequest.onBeforeRequest.addListener(
       return {};
     }
 
+    // Check for temporary domain allowance
+    const tempAllow = tempAllowedDomains.get(requestDomain);
+    if (tempAllow && tempAllow.cookieStoreId === tabInfo.cookieStoreId) {
+      return {};
+    }
+
     // Use shouldBlockRequest to check if request should be blocked/allowed
     const blockResult = shouldBlockRequest(
       requestDomain,
@@ -448,40 +449,11 @@ browser.webRequest.onBeforeRequest.addListener(
     }
 
     // Unknown third-party domain in permanent container - pause and ask user
+    const tabId = details.tabId;
+
+    // Use the pending tracker to handle the request
     return new Promise((resolve) => {
-      const requestId = details.requestId;
-
-      // Store the pending request
-      pendingRequests.set(requestId, {
-        resolve,
-        tabId: details.tabId,
-        domain: requestDomain,
-        url: details.url,
-        type: details.type,
-        timestamp: Date.now()
-      });
-
-      addPendingRequest(requestId, details.tabId, requestDomain, details.url, details.type);
-
-      // Timeout - block by default if no response
-      setTimeout(() => {
-        if (pendingRequests.has(requestId)) {
-          const pending = pendingRequests.get(requestId);
-          pendingRequests.delete(requestId);
-          pending.resolve({ cancel: true });
-
-          // Update tracking
-          const tabRequests = thirdPartyRequestsPerTab.get(details.tabId);
-          if (tabRequests) {
-            const domainData = tabRequests.get(requestDomain);
-            if (domainData) {
-              domainData.pending--;
-              domainData.requestIds = domainData.requestIds.filter(id => id !== requestId);
-              updatePageActionBadge(details.tabId);
-            }
-          }
-        }
-      }, REQUEST_TIMEOUT);
+      pendingTracker.addPendingDecision(tabId, requestDomain, resolve);
     });
   },
   { urls: ['http://*/*', 'https://*/*'] },
@@ -549,6 +521,11 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       await saveState();
       return { success: true };
 
+    case 'setStripWww':
+      state.stripWww = message.value;
+      await saveState();
+      return { success: true };
+
     case 'addExclusion':
       if (!state.containerExclusions[message.cookieStoreId]) {
         state.containerExclusions[message.cookieStoreId] = [];
@@ -594,31 +571,12 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
     }
 
     case 'getPendingRequests': {
-      const tabRequests = thirdPartyRequestsPerTab.get(message.tabId);
-      if (!tabRequests) return [];
-      return Array.from(tabRequests.values())
-        .filter(r => r.pending > 0)
-        .sort((a, b) => b.pending - a.pending);
+      return pendingTracker.getPendingDomainsForTab(message.tabId);
     }
 
     case 'allowDomain': {
       // Allow all pending requests for this domain
-      const tabRequests = thirdPartyRequestsPerTab.get(message.tabId);
-      if (tabRequests) {
-        const domainData = tabRequests.get(message.domain);
-        if (domainData) {
-          for (const requestId of domainData.requestIds) {
-            const pending = pendingRequests.get(requestId);
-            if (pending) {
-              pending.resolve({});
-              pendingRequests.delete(requestId);
-            }
-          }
-          domainData.pending = 0;
-          domainData.requestIds = [];
-          updatePageActionBadge(message.tabId);
-        }
-      }
+      pendingTracker.allowDomain(message.tabId, message.domain);
 
       // Optionally add rule for future requests
       if (message.addRule && message.containerName) {
@@ -635,22 +593,7 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
 
     case 'blockDomain': {
       // Block all pending requests for this domain
-      const tabRequests = thirdPartyRequestsPerTab.get(message.tabId);
-      if (tabRequests) {
-        const domainData = tabRequests.get(message.domain);
-        if (domainData) {
-          for (const requestId of domainData.requestIds) {
-            const pending = pendingRequests.get(requestId);
-            if (pending) {
-              pending.resolve({ cancel: true });
-              pendingRequests.delete(requestId);
-            }
-          }
-          domainData.pending = 0;
-          domainData.requestIds = [];
-          updatePageActionBadge(message.tabId);
-        }
-      }
+      pendingTracker.blockDomain(message.tabId, message.domain);
 
       // Optionally add to exclusion list for future requests
       if (message.addExclusion && message.cookieStoreId) {
@@ -666,23 +609,8 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
     }
 
     case 'allowOnce': {
-      // Allow specific pending requests without adding rule
-      const tabRequests = thirdPartyRequestsPerTab.get(message.tabId);
-      if (tabRequests) {
-        const domainData = tabRequests.get(message.domain);
-        if (domainData) {
-          for (const requestId of domainData.requestIds) {
-            const pending = pendingRequests.get(requestId);
-            if (pending) {
-              pending.resolve({});
-              pendingRequests.delete(requestId);
-            }
-          }
-          domainData.pending = 0;
-          domainData.requestIds = [];
-          updatePageActionBadge(message.tabId);
-        }
-      }
+      // Allow all pending requests for this domain without adding rule
+      pendingTracker.allowDomain(message.tabId, message.domain);
       return { success: true };
     }
 
@@ -718,21 +646,7 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
 // Page Action
 // ============================================================================
 
-async function showPageActionForTab(tabId, url) {
-  if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-    await browser.pageAction.show(tabId);
-  }
-}
-
-browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.url || changeInfo.status === 'complete') {
-    await showPageActionForTab(tabId, tab.url);
-  }
-});
-
-browser.tabs.onCreated.addListener(async (tab) => {
-  await showPageActionForTab(tab.id, tab.url);
-});
+// Page action visibility is now handled by updatePageActionBadge() - only shown when pending requests exist
 
 // ============================================================================
 // Keyboard Shortcut
@@ -748,18 +662,102 @@ browser.commands.onCommand.addListener(async (command) => {
 });
 
 // ============================================================================
+// Context Menus
+// ============================================================================
+
+async function setupContextMenus() {
+  // Remove all existing menus first
+  await browser.menus.removeAll();
+
+  // Create parent menu for "Reopen in Container"
+  browser.menus.create({
+    id: 'vessel-reopen-in-container',
+    title: 'Reopen in Container',
+    contexts: ['tab']
+  });
+
+  // Get all containers and create submenus
+  const containers = await browser.contextualIdentities.query({});
+  for (const container of containers) {
+    browser.menus.create({
+      id: `vessel-reopen-${container.cookieStoreId}`,
+      parentId: 'vessel-reopen-in-container',
+      title: container.name,
+      contexts: ['tab']
+    });
+  }
+
+  // Add "New Temp Container" option
+  browser.menus.create({
+    id: 'vessel-reopen-temp',
+    parentId: 'vessel-reopen-in-container',
+    title: 'New Temp Container',
+    contexts: ['tab']
+  });
+}
+
+browser.menus.onClicked.addListener(async (info, tab) => {
+  const domain = extractDomain(tab.url);
+
+  if (info.menuItemId === 'vessel-reopen-temp') {
+    // Create a new temp container and reopen the tab
+    const container = await createTempContainer();
+
+    const newTab = await browser.tabs.create({
+      url: tab.url,
+      cookieStoreId: container.cookieStoreId,
+      index: tab.index + 1
+    });
+
+    // Add temp allowance for this domain in the new container
+    if (domain) {
+      tempAllowedDomains.set(domain, {
+        cookieStoreId: container.cookieStoreId,
+        tabId: newTab.id
+      });
+    }
+
+    await browser.tabs.remove(tab.id);
+
+  } else if (info.menuItemId.startsWith('vessel-reopen-')) {
+    const cookieStoreId = info.menuItemId.replace('vessel-reopen-', '');
+
+    const newTab = await browser.tabs.create({
+      url: tab.url,
+      cookieStoreId,
+      index: tab.index + 1
+    });
+
+    // Add temp allowance for this domain in the new container
+    if (domain) {
+      tempAllowedDomains.set(domain, {
+        cookieStoreId,
+        tabId: newTab.id
+      });
+    }
+
+    await browser.tabs.remove(tab.id);
+  }
+});
+
+// Update context menus when containers change
+browser.contextualIdentities.onCreated.addListener(setupContextMenus);
+browser.contextualIdentities.onRemoved.addListener(setupContextMenus);
+browser.contextualIdentities.onUpdated.addListener(setupContextMenus);
+
+// ============================================================================
 // Initialization
 // ============================================================================
 
 async function init() {
   await loadState();
   await cleanupEmptyTempContainers();
+  await setupContextMenus();
 
-  // Pre-populate tab cache and show page action for all existing tabs
+  // Pre-populate tab cache
   const tabs = await browser.tabs.query({});
   for (const tab of tabs) {
     await updateTabCache(tab.id);
-    await showPageActionForTab(tab.id, tab.url);
   }
 
   console.log('Vessel initialized', state);
