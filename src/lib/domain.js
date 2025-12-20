@@ -18,8 +18,69 @@ export function getParentDomain(domain) {
   return parts.slice(1).join('.');
 }
 
+/**
+ * Get parent domain for consolidation suggestions.
+ * Strips one subdomain level, ignoring www.
+ * e.g., "a.svc.cloudflare.net" → "svc.cloudflare.net"
+ * e.g., "www.example.com" → "example.com" (strips www)
+ */
+export function getParentForConsolidation(domain) {
+  if (!domain) return null;
+
+  // Strip www first
+  let clean = domain;
+  if (clean.startsWith('www.')) {
+    clean = clean.slice(4);
+  }
+
+  const parts = clean.split('.');
+  // Need at least 3 parts to have a meaningful parent (sub.domain.tld)
+  if (parts.length <= 2) return null;
+
+  return parts.slice(1).join('.');
+}
+
+/**
+ * Find patterns in a list of domains that could be consolidated.
+ * Returns map of parent domain → [child domains]
+ */
+export function findConsolidationPatterns(domains, minChildren = 2) {
+  const parentCounts = new Map();
+
+  for (const domain of domains) {
+    const parent = getParentForConsolidation(domain);
+    if (!parent) continue;
+
+    if (!parentCounts.has(parent)) {
+      parentCounts.set(parent, []);
+    }
+    parentCounts.get(parent).push(domain);
+  }
+
+  // Filter to only parents with enough children
+  const patterns = new Map();
+  for (const [parent, children] of parentCounts) {
+    if (children.length >= minChildren) {
+      patterns.set(parent, children);
+    }
+  }
+
+  return patterns;
+}
+
 export function isSubdomainOf(subdomain, parent) {
   return subdomain.endsWith('.' + parent) && subdomain !== parent;
+}
+
+/**
+ * Normalize domain by optionally stripping www. prefix
+ */
+export function normalizeDomain(domain, stripWww = false) {
+  if (!domain) return domain;
+  if (stripWww && domain.startsWith('www.')) {
+    return domain.slice(4);
+  }
+  return domain;
 }
 
 export function getEffectiveSubdomainSetting(rule, state) {
@@ -47,14 +108,17 @@ export function isBlendedInContainer(domain, cookieStoreId, state) {
 }
 
 export function findMatchingRule(domain, state) {
+  // Normalize domain if stripWww is enabled
+  const searchDomain = normalizeDomain(domain, state.stripWww);
+
   // Direct match
-  if (state.domainRules[domain]) {
-    return { domain, ...state.domainRules[domain] };
+  if (state.domainRules[searchDomain]) {
+    return { domain: searchDomain, ...state.domainRules[searchDomain] };
   }
 
   // Check if domain is subdomain of any ruled domain
   for (const [ruledDomain, rule] of Object.entries(state.domainRules)) {
-    if (isSubdomainOf(domain, ruledDomain)) {
+    if (isSubdomainOf(searchDomain, ruledDomain)) {
       // Check if excluded from this container
       if (isExcludedFromContainer(domain, rule.cookieStoreId, state)) {
         continue;
@@ -72,7 +136,7 @@ export function findMatchingRule(domain, state) {
           ...rule,
           isSubdomainMatch: true,
           shouldAsk: true,
-          subdomainUrl: domain
+          subdomainUrl: searchDomain
         };
       }
     }

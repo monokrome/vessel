@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   extractDomain,
   getParentDomain,
+  getParentForConsolidation,
+  findConsolidationPatterns,
   isSubdomainOf,
+  normalizeDomain,
   getEffectiveSubdomainSetting,
   isExcludedFromContainer,
   isBlendedInContainer,
@@ -49,6 +52,117 @@ describe('getParentDomain', () => {
 
   it('returns null for TLD', () => {
     expect(getParentDomain('com')).toBe(null);
+  });
+});
+
+describe('getParentForConsolidation', () => {
+  it('returns parent for subdomain', () => {
+    expect(getParentForConsolidation('a.svc.cloudflare.net')).toBe('svc.cloudflare.net');
+  });
+
+  it('returns null for www.example.com (no parent after stripping www)', () => {
+    // After stripping www, example.com has only 2 parts - no parent possible
+    expect(getParentForConsolidation('www.example.com')).toBe(null);
+  });
+
+  it('handles www subdomain correctly', () => {
+    expect(getParentForConsolidation('www.api.example.com')).toBe('example.com');
+  });
+
+  it('returns null for root domain', () => {
+    expect(getParentForConsolidation('example.com')).toBe(null);
+  });
+
+  it('returns null for null input', () => {
+    expect(getParentForConsolidation(null)).toBe(null);
+  });
+
+  it('handles deeply nested subdomains', () => {
+    expect(getParentForConsolidation('a.b.c.d.example.com')).toBe('b.c.d.example.com');
+  });
+});
+
+describe('findConsolidationPatterns', () => {
+  it('finds patterns with multiple subdomains of same parent', () => {
+    const domains = [
+      'a.svc.cloudflare.net',
+      'b.svc.cloudflare.net',
+      'c.svc.cloudflare.net'
+    ];
+    const patterns = findConsolidationPatterns(domains);
+    expect(patterns.size).toBe(1);
+    expect(patterns.has('svc.cloudflare.net')).toBe(true);
+    expect(patterns.get('svc.cloudflare.net')).toEqual(domains);
+  });
+
+  it('ignores domains without enough children', () => {
+    const domains = [
+      'a.svc.cloudflare.net',
+      'b.other.cloudflare.net'
+    ];
+    const patterns = findConsolidationPatterns(domains);
+    expect(patterns.size).toBe(0);
+  });
+
+  it('finds multiple patterns', () => {
+    const domains = [
+      'a.svc.cloudflare.net',
+      'b.svc.cloudflare.net',
+      'x.api.example.com',
+      'y.api.example.com'
+    ];
+    const patterns = findConsolidationPatterns(domains);
+    expect(patterns.size).toBe(2);
+    expect(patterns.has('svc.cloudflare.net')).toBe(true);
+    expect(patterns.has('api.example.com')).toBe(true);
+  });
+
+  it('respects minChildren parameter', () => {
+    const domains = [
+      'a.svc.cloudflare.net',
+      'b.svc.cloudflare.net'
+    ];
+    expect(findConsolidationPatterns(domains, 2).size).toBe(1);
+    expect(findConsolidationPatterns(domains, 3).size).toBe(0);
+  });
+
+  it('handles empty array', () => {
+    expect(findConsolidationPatterns([]).size).toBe(0);
+  });
+
+  it('handles root domains (no consolidation possible)', () => {
+    const domains = ['example.com', 'other.com'];
+    expect(findConsolidationPatterns(domains).size).toBe(0);
+  });
+});
+
+describe('normalizeDomain', () => {
+  it('returns domain unchanged when stripWww is false', () => {
+    expect(normalizeDomain('www.example.com', false)).toBe('www.example.com');
+  });
+
+  it('strips www prefix when stripWww is true', () => {
+    expect(normalizeDomain('www.example.com', true)).toBe('example.com');
+  });
+
+  it('does not strip www from middle of domain', () => {
+    expect(normalizeDomain('api.www.example.com', true)).toBe('api.www.example.com');
+  });
+
+  it('handles domain without www', () => {
+    expect(normalizeDomain('example.com', true)).toBe('example.com');
+  });
+
+  it('handles null input', () => {
+    expect(normalizeDomain(null, true)).toBe(null);
+  });
+
+  it('handles undefined input', () => {
+    expect(normalizeDomain(undefined, true)).toBe(undefined);
+  });
+
+  it('strips www from nested subdomain', () => {
+    expect(normalizeDomain('www.api.example.com', true)).toBe('api.example.com');
   });
 });
 
@@ -224,6 +338,19 @@ describe('findMatchingRule', () => {
     expect(findMatchingRule('api.example.com', state)).toBe(null);
   });
 
+  it('returns null for subdomain when subdomains inherit and globalSubdomains is false', () => {
+    // This is the default case - new rules have subdomains: null (inherit)
+    // and globalSubdomains defaults to false
+    const state = createState({
+      'proton.me': { cookieStoreId: 'container-1', containerName: 'Proton', subdomains: null },
+    });
+    // Verify globalSubdomains is false (the default)
+    expect(state.globalSubdomains).toBe(false);
+    // Subdomain should NOT match when inheriting from false global setting
+    expect(findMatchingRule('mail.proton.me', state)).toBe(null);
+    expect(findMatchingRule('accounts.proton.me', state)).toBe(null);
+  });
+
   it('returns ask result when subdomains set to ask', () => {
     const state = createState({
       'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: 'ask' },
@@ -276,6 +403,58 @@ describe('findMatchingRule', () => {
     );
     const result = findMatchingRule('api.example.com', state);
     expect(result.isSubdomainMatch).toBe(true);
+  });
+
+  it('matches www.example.com to example.com rule when stripWww is true', () => {
+    const state = createState(
+      {
+        'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
+      },
+      {
+        stripWww: true,
+      }
+    );
+    const result = findMatchingRule('www.example.com', state);
+    expect(result).not.toBe(null);
+    expect(result.domain).toBe('example.com');
+    expect(result.cookieStoreId).toBe('container-1');
+  });
+
+  it('does not match www.example.com when stripWww is false', () => {
+    const state = createState(
+      {
+        'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: false },
+      },
+      {
+        stripWww: false,
+      }
+    );
+    const result = findMatchingRule('www.example.com', state);
+    expect(result).toBe(null);
+  });
+
+  it('matches www subdomain to parent rule when stripWww true and subdomains enabled', () => {
+    const state = createState(
+      {
+        'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: true },
+      },
+      {
+        stripWww: true,
+      }
+    );
+    // www.api.example.com → api.example.com after stripping www
+    const result = findMatchingRule('www.api.example.com', state);
+    expect(result).not.toBe(null);
+    expect(result.isSubdomainMatch).toBe(true);
+  });
+
+  it('stripWww defaults to false when not set', () => {
+    const state = createState({
+      'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: false },
+    });
+    // No stripWww in state, should not match
+    const result = findMatchingRule('www.example.com', state);
+    expect(result).toBe(null);
   });
 });
 
