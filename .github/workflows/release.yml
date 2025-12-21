@@ -44,7 +44,17 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Sign extension (unlisted)
+      - name: Submit to AMO (listed)
+        run: |
+          pnpm web-ext sign \
+            --source-dir src \
+            --channel listed \
+            --amo-metadata amo-metadata.json \
+            --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
+            --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
+        continue-on-error: true
+
+      - name: Sign extension (unlisted for GitHub)
         run: |
           pnpm web-ext sign \
             --source-dir src \
