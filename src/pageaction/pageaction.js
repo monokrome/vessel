@@ -71,7 +71,7 @@ function renderPendingList() {
       <div class="pending-item" data-domain="${escapeAttr(req.domain)}">
         <div class="pending-header">
           <span class="pending-domain" title="${escapeAttr(req.domain)}">${escapeHtml(req.domain)}</span>
-          <span class="pending-count">${req.pending} waiting</span>
+          <span class="pending-count">${req.count} waiting</span>
         </div>
         <div class="pending-actions">
           ${isCrossContainer
