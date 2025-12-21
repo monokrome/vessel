@@ -67,12 +67,3 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
 
-      - name: Submit to AMO (listed) - may fail if unlisted already submitted
-        run: |
-          pnpm web-ext sign \
-            --source-dir src \
-            --channel listed \
-            --amo-metadata amo-metadata.json \
-            --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
-            --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
-        continue-on-error: true
