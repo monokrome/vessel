@@ -1,0 +1,46 @@
+name: Submit to AMO
+
+on:
+  push:
+    tags:
+      - 'v*mdo'
+
+jobs:
+  amo:
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update manifest version for AMO
+        run: |
+          sed -i 's/"version": "[^"]*"/"version": "${{ steps.version.outputs.version }}"/' src/manifest.json
+          cat src/manifest.json | grep version
+
+      - name: Submit to AMO (listed)
+        run: |
+          pnpm web-ext sign \
+            --source-dir src \
+            --channel listed \
+            --api-key "${{ secrets.WEB_EXT_API_KEY }}" \
+            --api-secret "${{ secrets.WEB_EXT_API_SECRET }}"
