@@ -420,10 +420,25 @@ function isThirdParty(requestDomain, tabDomain) {
   return true;
 }
 
+// Request types that should never be paused (fire-and-forget or can cause issues)
+const PASSTHROUGH_REQUEST_TYPES = new Set([
+  'beacon',       // Analytics beacons - fire and forget
+  'ping',         // Hyperlink auditing pings
+  'csp_report',   // Content Security Policy reports
+  'speculative',  // Speculative connections
+]);
+
 browser.webRequest.onBeforeRequest.addListener(
   (details) => {
+    const startTime = performance.now();
+
     // Skip main frame navigations (handled by webNavigation)
     if (details.type === 'main_frame') {
+      return {};
+    }
+
+    // Skip request types that should never be paused
+    if (PASSTHROUGH_REQUEST_TYPES.has(details.type)) {
       return {};
     }
 
@@ -463,22 +478,43 @@ browser.webRequest.onBeforeRequest.addListener(
       state.tempContainers
     );
 
-    // If explicitly blocked, cancel immediately
-    if (blockResult.block) {
+    // If explicitly blocked (excluded domain), cancel immediately
+    if (blockResult.block && blockResult.reason === 'excluded') {
       return { cancel: true };
     }
 
     // If allowed with a reason (blended, temp-container, same-domain, etc.), allow
-    if (blockResult.reason) {
+    if (!blockResult.block && blockResult.reason) {
       return {};
     }
 
-    // Unknown third-party domain in permanent container - pause and ask user
+    // Cross-container requests or unknown third-party - pause and ask user
+    // This includes:
+    // - Requests to domains that belong to other containers (cross-container)
+    // - Requests to unknown third-party domains in permanent containers
     const tabId = details.tabId;
+    const syncTime = performance.now() - startTime;
+    if (syncTime > 5) {
+      console.warn(`[Vessel] Slow sync handler: ${syncTime.toFixed(1)}ms for ${requestDomain}`);
+    }
+
+    const pauseReason = blockResult.reason === 'cross-container'
+      ? `cross-container (belongs to ${blockResult.targetContainer})`
+      : 'unknown third-party';
+    console.log(`[Vessel] Pausing ${details.type} request to ${requestDomain} - ${pauseReason} (tab ${tabId}, sync: ${syncTime.toFixed(1)}ms)`);
 
     // Use the pending tracker to handle the request
+    // Note: The Promise executor runs synchronously. Using queueMicrotask
+    // ensures the tracker work happens after the Promise is returned to Firefox.
     return new Promise((resolve) => {
-      pendingTracker.addPendingDecision(tabId, requestDomain, resolve);
+      queueMicrotask(() => {
+        const trackerStart = performance.now();
+        pendingTracker.addPendingDecision(tabId, requestDomain, resolve);
+        const trackerTime = performance.now() - trackerStart;
+        if (trackerTime > 5) {
+          console.warn(`[Vessel] Slow addPendingDecision: ${trackerTime.toFixed(1)}ms for ${requestDomain}`);
+        }
+      });
     });
   },
   { urls: ['http://*/*', 'https://*/*'] },

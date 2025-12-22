@@ -218,10 +218,12 @@ export function createPendingTracker(options = {}) {
   }
 
   function addPendingDecision(tabId, domain, resolve) {
+    const fnStart = performance.now();
     const parent = getParentForConsolidation(domain);
 
     // Check if there's already a decision for this domain or its parent pattern
     const existingKey = findDecisionKey(tabId, domain);
+    const lookupTime = performance.now() - fnStart;
 
     if (existingKey) {
       // Add to existing decision
@@ -283,6 +285,11 @@ export function createPendingTracker(options = {}) {
     pendingDomainDecisions.set(key, decision);
     domainToKey.set(getDomainKey(tabId, domain), domain);
     addPendingDomain(tabId, domain, null);
+
+    const totalTime = performance.now() - fnStart;
+    if (totalTime > 5) {
+      console.warn(`[Vessel] addPendingDecision took ${totalTime.toFixed(1)}ms (lookup: ${lookupTime.toFixed(1)}ms) for ${domain}`);
+    }
 
     return decision;
   }
