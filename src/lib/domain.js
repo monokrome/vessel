@@ -264,10 +264,14 @@ export function shouldBlockRequest(requestDomain, tabCookieStoreId, tabDomain, s
     return { block: false, reason: 'same-container' };
   }
 
-  // Unknown third-party domain (no rule) - allow it
-  // Container isolation already protects privacy; only cross-container requests are blocked
-  if (!rule) {
-    return { block: false, reason: 'unknown-allowed' };
+  // If tab is in a permanent container and request goes to unruled domain
+  // This is an unknown third-party - return without reason to trigger pause
+  const isInPermanentContainer = tabCookieStoreId !== 'firefox-default' &&
+    !tempContainers.includes(tabCookieStoreId);
+
+  if (isInPermanentContainer && !rule) {
+    // Unknown third-party in permanent container - no reason means it will be paused
+    return { block: false };
   }
 
   return { block: false, reason: 'allowed' };

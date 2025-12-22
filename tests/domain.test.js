@@ -673,6 +673,27 @@ describe('shouldBlockRequest', () => {
     expect(result.reason).toBe('temp-container');
   });
 
+  it('pauses unknown third-party requests in permanent container', () => {
+    const state = createState({
+      'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
+    });
+    // Unknown third-party (tracker.com has no rule) from permanent container
+    // Should return no reason, which triggers pause in webRequest handler
+    const result = shouldBlockRequest('tracker.com', 'container-1', 'example.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('pauses unknown CDN requests in permanent container', () => {
+    const state = createState({
+      'myapp.com': { cookieStoreId: 'container-1', containerName: 'MyApp', subdomains: null },
+    });
+    // CDN domain with no rule - should pause for user decision
+    const result = shouldBlockRequest('cdn.cloudflare.com', 'container-1', 'myapp.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
   it('allows blended cross-container requests', () => {
     const state = createState(
       {
@@ -837,7 +858,7 @@ describe('shouldBlockRequest', () => {
     expect(result.reason).toBe('subdomain-allowed');
   });
 
-  it('allows subdomain requests as unknown when subdomains disabled', () => {
+  it('pauses subdomain requests when subdomains disabled in permanent container', () => {
     const state = createState(
       {
         'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
@@ -845,9 +866,10 @@ describe('shouldBlockRequest', () => {
       }
     );
     // Subdomains explicitly disabled on uber.com - treated as unknown third-party
+    // In permanent container, unknown third-party requests are paused (no reason)
     const result = shouldBlockRequest('x.uber.com', 'container-1', 'ubereats.com', state, []);
     expect(result.block).toBe(false);
-    expect(result.reason).toBe('unknown-allowed');
+    expect(result.reason).toBeUndefined();
   });
 
   it('blocks subdomain requests to different container even with subdomains enabled', () => {

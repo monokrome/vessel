@@ -10,6 +10,7 @@ describe('createPendingTracker', () => {
     badgeUpdates = [];
     tracker = createPendingTracker({
       onBadgeUpdate: (tabId) => badgeUpdates.push(tabId),
+      requestTimeout: 1000, // 1 second for faster tests
     });
   });
 
@@ -98,6 +99,156 @@ describe('createPendingTracker', () => {
       expect(tracker.getPendingDomainCount(1)).toBe(0);
       expect(tracker.getPendingDomainCount(2)).toBe(1);
     });
+
+    it('resolves all pending decisions as blocked', async () => {
+      const resolves = [];
+
+      // Add pending decisions
+      tracker.addPendingDecision(1, 'example.com', (result) => resolves.push(result));
+      tracker.addPendingDecision(1, 'other.com', (result) => resolves.push(result));
+
+      // Clear tab
+      tracker.clearPendingDomainsForTab(1);
+
+      expect(resolves).toHaveLength(2);
+      expect(resolves[0]).toEqual({ cancel: true });
+      expect(resolves[1]).toEqual({ cancel: true });
+    });
+
+    it('clears timeouts to prevent memory leaks', () => {
+      tracker.addPendingDecision(1, 'example.com', () => {});
+
+      const state = tracker._getState();
+      const decision = state.pendingDomainDecisions.get('1:example.com');
+      expect(decision.timeoutId).not.toBeNull();
+
+      tracker.clearPendingDomainsForTab(1);
+
+      // Advance timer past timeout - should not cause errors
+      vi.advanceTimersByTime(2000);
+
+      // State should be empty
+      const newState = tracker._getState();
+      expect(newState.pendingDomainDecisions.size).toBe(0);
+    });
+  });
+
+  describe('addPendingDecision', () => {
+    it('creates a new decision for first request', () => {
+      const resolve = vi.fn();
+      tracker.addPendingDecision(1, 'example.com', resolve);
+
+      expect(tracker.hasPendingDecision(1, 'example.com')).toBe(true);
+    });
+
+    it('adds resolver to existing decision for same domain', () => {
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+
+      tracker.addPendingDecision(1, 'example.com', resolve1);
+      tracker.addPendingDecision(1, 'example.com', resolve2);
+
+      // Only one decision should exist
+      const state = tracker._getState();
+      expect(state.pendingDomainDecisions.size).toBe(1);
+
+      // But with two resolvers
+      const decision = state.pendingDomainDecisions.get('1:example.com');
+      expect(decision.resolvers).toHaveLength(2);
+    });
+
+    it('times out and blocks after timeout period', () => {
+      const resolve = vi.fn();
+      tracker.addPendingDecision(1, 'example.com', resolve);
+
+      // Advance past timeout
+      vi.advanceTimersByTime(1100);
+
+      expect(resolve).toHaveBeenCalledWith({ cancel: true });
+      expect(tracker.hasPendingDecision(1, 'example.com')).toBe(false);
+    });
+
+    it('times out all resolvers for same domain', () => {
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+      const resolve3 = vi.fn();
+
+      tracker.addPendingDecision(1, 'example.com', resolve1);
+      tracker.addPendingDecision(1, 'example.com', resolve2);
+      tracker.addPendingDecision(1, 'example.com', resolve3);
+
+      vi.advanceTimersByTime(1100);
+
+      expect(resolve1).toHaveBeenCalledWith({ cancel: true });
+      expect(resolve2).toHaveBeenCalledWith({ cancel: true });
+      expect(resolve3).toHaveBeenCalledWith({ cancel: true });
+    });
+  });
+
+  describe('allowDomain', () => {
+    it('resolves all pending requests with empty object', () => {
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+
+      tracker.addPendingDecision(1, 'example.com', resolve1);
+      tracker.addPendingDecision(1, 'example.com', resolve2);
+
+      tracker.allowDomain(1, 'example.com');
+
+      expect(resolve1).toHaveBeenCalledWith({});
+      expect(resolve2).toHaveBeenCalledWith({});
+    });
+
+    it('clears the timeout', () => {
+      const resolve = vi.fn();
+      tracker.addPendingDecision(1, 'example.com', resolve);
+
+      tracker.allowDomain(1, 'example.com');
+
+      // Advance timer - should not trigger again
+      vi.advanceTimersByTime(2000);
+
+      expect(resolve).toHaveBeenCalledTimes(1);
+      expect(resolve).toHaveBeenCalledWith({});
+    });
+
+    it('removes pending domain tracking', () => {
+      tracker.addPendingDecision(1, 'example.com', () => {});
+      tracker.allowDomain(1, 'example.com');
+
+      expect(tracker.getPendingDomainCount(1)).toBe(0);
+    });
+
+    it('returns false for non-existent decision', () => {
+      const result = tracker.allowDomain(1, 'nonexistent.com');
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('blockDomain', () => {
+    it('resolves all pending requests with cancel: true', () => {
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+
+      tracker.addPendingDecision(1, 'example.com', resolve1);
+      tracker.addPendingDecision(1, 'example.com', resolve2);
+
+      tracker.blockDomain(1, 'example.com');
+
+      expect(resolve1).toHaveBeenCalledWith({ cancel: true });
+      expect(resolve2).toHaveBeenCalledWith({ cancel: true });
+    });
+
+    it('clears the timeout', () => {
+      const resolve = vi.fn();
+      tracker.addPendingDecision(1, 'example.com', resolve);
+
+      tracker.blockDomain(1, 'example.com');
+
+      vi.advanceTimersByTime(2000);
+
+      expect(resolve).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('getPendingDomainsForTab', () => {
@@ -142,6 +293,7 @@ describe('Stress tests', () => {
     badgeUpdates = [];
     tracker = createPendingTracker({
       onBadgeUpdate: (tabId) => badgeUpdates.push(tabId),
+      requestTimeout: 60000,
     });
   });
 
@@ -197,33 +349,124 @@ describe('Stress tests', () => {
       expect(tracker.getPendingDomainCount(tabId)).toBe(0);
       expect(tracker.getTotalPendingCount()).toBe(0);
     });
+
+    it('cleans up 100 pending decisions on tab close', () => {
+      const tabId = 1;
+      const resolves = [];
+
+      for (let i = 0; i < 100; i++) {
+        tracker.addPendingDecision(tabId, `domain${i}.com`, (result) => resolves.push(result));
+      }
+
+      tracker.clearPendingDomainsForTab(tabId);
+
+      expect(resolves).toHaveLength(100);
+      resolves.forEach(result => {
+        expect(result).toEqual({ cancel: true });
+      });
+    });
+
+    it('handles 500 requests to single domain with single decision', () => {
+      const tabId = 1;
+      const domain = 'streaming-cdn.com';
+      const resolves = [];
+
+      for (let i = 0; i < 500; i++) {
+        tracker.addPendingDecision(tabId, domain, (result) => resolves.push(result));
+      }
+
+      // Should only have one decision entry
+      const state = tracker._getState();
+      expect(state.pendingDomainDecisions.size).toBe(1);
+
+      // But 500 resolvers
+      const decision = state.pendingDomainDecisions.get(`${tabId}:${domain}`);
+      expect(decision.resolvers).toHaveLength(500);
+
+      // Allow all at once
+      tracker.allowDomain(tabId, domain);
+
+      expect(resolves).toHaveLength(500);
+      resolves.forEach(result => {
+        expect(result).toEqual({});
+      });
+    });
+  });
+
+  describe('Timeout cleanup under load', () => {
+    it('times out many domains correctly', () => {
+      const tabId = 1;
+      const resolves = [];
+
+      for (let i = 0; i < 50; i++) {
+        tracker.addPendingDecision(tabId, `domain${i}.com`, (result) => resolves.push(result));
+      }
+
+      // Advance past timeout
+      vi.advanceTimersByTime(61000);
+
+      expect(resolves).toHaveLength(50);
+      expect(tracker.getTotalPendingCount()).toBe(0);
+    });
+
+    it('mixed decisions and timeouts work correctly', () => {
+      const tabId = 1;
+      const resolved = [];
+      const timedOut = [];
+
+      for (let i = 0; i < 10; i++) {
+        tracker.addPendingDecision(tabId, `allow${i}.com`, (result) => resolved.push(result));
+      }
+      for (let i = 0; i < 10; i++) {
+        tracker.addPendingDecision(tabId, `timeout${i}.com`, (result) => timedOut.push(result));
+      }
+
+      // Allow some immediately
+      for (let i = 0; i < 10; i++) {
+        tracker.allowDomain(tabId, `allow${i}.com`);
+      }
+
+      // Let others timeout
+      vi.advanceTimersByTime(61000);
+
+      expect(resolved).toHaveLength(10);
+      expect(timedOut).toHaveLength(10);
+
+      resolved.forEach(r => expect(r).toEqual({}));
+      timedOut.forEach(r => expect(r).toEqual({ cancel: true }));
+    });
   });
 
   describe('Memory safety', () => {
     it('does not leak state after tab close', () => {
       const tabId = 1;
 
+      // Add lots of data
       for (let i = 0; i < 100; i++) {
-        tracker.addPendingDomain(tabId, `domain${i}.com`);
+        tracker.addPendingDecision(tabId, `domain${i}.com`, () => {});
       }
 
+      // Clear tab
       tracker.clearPendingDomainsForTab(tabId);
 
+      // Verify internal state is clean
       const state = tracker._getState();
       expect(state.pendingDomainsPerTab.size).toBe(0);
+      expect(state.pendingDomainDecisions.size).toBe(0);
     });
 
     it('handles repeated add/clear cycles', () => {
       for (let cycle = 0; cycle < 100; cycle++) {
         const tabId = cycle % 5;
         for (let i = 0; i < 10; i++) {
-          tracker.addPendingDomain(tabId, `domain${i}.com`);
+          tracker.addPendingDecision(tabId, `domain${i}.com`, () => {});
         }
         tracker.clearPendingDomainsForTab(tabId);
       }
 
       const state = tracker._getState();
       expect(state.pendingDomainsPerTab.size).toBe(0);
+      expect(state.pendingDomainDecisions.size).toBe(0);
     });
   });
 });

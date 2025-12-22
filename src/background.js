@@ -450,15 +450,23 @@ browser.webRequest.onBeforeRequest.addListener(
       state.tempContainers
     );
 
-    // Block if explicitly blocked (cross-container, excluded, etc.)
+    // If explicitly blocked, cancel immediately
     if (blockResult.block) {
-      // Track blocked domains for user visibility
-      pendingTracker.addPendingDomain(details.tabId, requestDomain);
       return { cancel: true };
     }
 
-    // Allow the request
-    return {};
+    // If allowed with a reason (blended, temp-container, same-domain, etc.), allow
+    if (blockResult.reason) {
+      return {};
+    }
+
+    // Unknown third-party domain in permanent container - pause and ask user
+    const tabId = details.tabId;
+
+    // Use the pending tracker to handle the request
+    return new Promise((resolve) => {
+      pendingTracker.addPendingDecision(tabId, requestDomain, resolve);
+    });
   },
   { urls: ['http://*/*', 'https://*/*'] },
   ['blocking']
@@ -587,7 +595,8 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
           tabId: message.tabId
         });
       }
-      pendingTracker.removePendingDomain(message.tabId, message.domain);
+      // Resolve pending requests for this domain (allow them to proceed)
+      pendingTracker.allowDomain(message.tabId, message.domain);
 
       // Optionally add rule for future requests
       if (message.addRule && message.containerName) {
@@ -603,8 +612,8 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
     }
 
     case 'blockDomain': {
-      // Remove from pending UI (already blocked by webRequest)
-      pendingTracker.removePendingDomain(message.tabId, message.domain);
+      // Resolve pending requests for this domain (block them)
+      pendingTracker.blockDomain(message.tabId, message.domain);
 
       // Optionally add to exclusion list for future requests
       if (message.addExclusion && message.cookieStoreId) {
@@ -628,7 +637,8 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
           tabId: message.tabId
         });
       }
-      pendingTracker.removePendingDomain(message.tabId, message.domain);
+      // Resolve pending requests for this domain (allow them to proceed)
+      pendingTracker.allowDomain(message.tabId, message.domain);
       return { success: true };
     }
 
