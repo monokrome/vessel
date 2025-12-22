@@ -104,7 +104,19 @@ export function isExcludedFromContainer(domain, cookieStoreId, state) {
 
 export function isBlendedInContainer(domain, cookieStoreId, state) {
   const blends = state.containerBlends?.[cookieStoreId] || [];
-  return blends.includes(domain);
+  if (blends.length === 0) return false;
+
+  // Check exact match first
+  if (blends.includes(domain)) return true;
+
+  // Check if any parent domain is blended
+  let current = getParentDomain(domain);
+  while (current) {
+    if (blends.includes(current)) return true;
+    current = getParentDomain(current);
+  }
+
+  return false;
 }
 
 export function findMatchingRule(domain, state) {

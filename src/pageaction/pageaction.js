@@ -1,5 +1,6 @@
 import { escapeHtml, escapeAttr, getContainerColor } from '../lib/ui-shared.js';
 import { DEFAULT_CONTAINER } from '../lib/constants.js';
+import { findMatchingRule } from '../lib/domain.js';
 
 let currentDomain = null;
 let currentTab = null;
@@ -64,7 +65,7 @@ function renderPendingList() {
 
   section.style.display = 'block';
   list.innerHTML = pendingRequests.map(req => {
-    const domainRule = state.domainRules[req.domain];
+    const domainRule = findMatchingRule(req.domain, state);
     const isCrossContainer = domainRule && domainRule.cookieStoreId !== currentTab.cookieStoreId;
 
     return `

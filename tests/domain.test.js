@@ -286,6 +286,29 @@ describe('isBlendedInContainer', () => {
     const state = {};
     expect(isBlendedInContainer('paypal.com', 'amazon-container', state)).toBe(false);
   });
+
+  it('returns true for subdomain when parent is blended', () => {
+    const state = {
+      containerBlends: { 'amazon-container': ['paypal.com'] },
+    };
+    expect(isBlendedInContainer('www.paypal.com', 'amazon-container', state)).toBe(true);
+    expect(isBlendedInContainer('api.paypal.com', 'amazon-container', state)).toBe(true);
+  });
+
+  it('returns true for deeply nested subdomain when ancestor is blended', () => {
+    const state = {
+      containerBlends: { 'amazon-container': ['paypal.com'] },
+    };
+    expect(isBlendedInContainer('checkout.api.paypal.com', 'amazon-container', state)).toBe(true);
+  });
+
+  it('does not match unrelated domains', () => {
+    const state = {
+      containerBlends: { 'amazon-container': ['paypal.com'] },
+    };
+    // notpaypal.com is not a subdomain of paypal.com
+    expect(isBlendedInContainer('notpaypal.com', 'amazon-container', state)).toBe(false);
+  });
 });
 
 describe('findMatchingRule', () => {
@@ -740,6 +763,22 @@ describe('shouldBlockRequest', () => {
     const result = shouldBlockRequest('amazon.com', 'paypal-container', 'paypal.com', state, []);
     expect(result.block).toBe(true);
     expect(result.reason).toBe('cross-container');
+  });
+
+  it('allows blended cross-container subdomain requests', () => {
+    const state = createState(
+      {
+        'amazon.com': { cookieStoreId: 'amazon-container', containerName: 'Amazon', subdomains: null },
+        'paypal.com': { cookieStoreId: 'paypal-container', containerName: 'PayPal', subdomains: true },
+      },
+      {
+        containerBlends: { 'amazon-container': ['paypal.com'] },
+      }
+    );
+    // Request from Amazon to www.paypal.com - should be allowed because paypal.com is blended
+    const result = shouldBlockRequest('www.paypal.com', 'amazon-container', 'amazon.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('blended');
   });
 
   it('allows subdomain requests when container has subdomains enabled', () => {
