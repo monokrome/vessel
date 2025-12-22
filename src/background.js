@@ -463,7 +463,15 @@ browser.webRequest.onBeforeRequest.addListener(
     // Unknown third-party domain in permanent container - pause and ask user
     const tabId = details.tabId;
 
-    // Use the pending tracker to handle the request
+    // Only block the FIRST request to this domain - subsequent requests are tracked
+    // but allowed through to prevent browser freeze from too many blocking Promises
+    if (pendingTracker.hasPendingDecision(tabId, requestDomain)) {
+      // Already waiting for decision on this domain - track but don't block
+      pendingTracker.addPendingDomain(tabId, requestDomain);
+      return {};
+    }
+
+    // First request to this domain - block and wait for user decision
     return new Promise((resolve) => {
       pendingTracker.addPendingDecision(tabId, requestDomain, resolve);
     });
