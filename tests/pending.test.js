@@ -470,3 +470,149 @@ describe('Stress tests', () => {
     });
   });
 });
+
+describe('Domain consolidation', () => {
+  let tracker;
+  let badgeUpdates;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    badgeUpdates = [];
+    tracker = createPendingTracker({
+      onBadgeUpdate: (tabId) => badgeUpdates.push(tabId),
+      requestTimeout: 60000,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe('Sibling subdomain consolidation', () => {
+    it('consolidates two subdomains of the same parent', () => {
+      const tabId = 1;
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+
+      tracker.addPendingDecision(tabId, 'a.svc.cloudflare.com', resolve1);
+      tracker.addPendingDecision(tabId, 'b.svc.cloudflare.com', resolve2);
+
+      // Should be consolidated under svc.cloudflare.com
+      const pending = tracker.getPendingDomainsForTab(tabId);
+      expect(pending).toHaveLength(1);
+      expect(pending[0].domain).toBe('svc.cloudflare.com');
+      expect(pending[0].domains).toContain('a.svc.cloudflare.com');
+      expect(pending[0].domains).toContain('b.svc.cloudflare.com');
+    });
+
+    it('resolves all consolidated resolvers together', () => {
+      const tabId = 1;
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+      const resolve3 = vi.fn();
+
+      tracker.addPendingDecision(tabId, 'x.cdn.example.net', resolve1);
+      tracker.addPendingDecision(tabId, 'y.cdn.example.net', resolve2);
+      tracker.addPendingDecision(tabId, 'z.cdn.example.net', resolve3);
+
+      // Allow using any of the consolidated domains
+      tracker.allowDomain(tabId, 'x.cdn.example.net');
+
+      expect(resolve1).toHaveBeenCalledWith({});
+      expect(resolve2).toHaveBeenCalledWith({});
+      expect(resolve3).toHaveBeenCalledWith({});
+    });
+
+    it('keeps different parent domains separate', () => {
+      const tabId = 1;
+
+      tracker.addPendingDecision(tabId, 'a.svc.cloudflare.com', vi.fn());
+      tracker.addPendingDecision(tabId, 'b.svc.cloudflare.com', vi.fn());
+      tracker.addPendingDecision(tabId, 'cloudflare.com', vi.fn());
+
+      const pending = tracker.getPendingDomainsForTab(tabId);
+      expect(pending).toHaveLength(2);
+
+      const domains = pending.map(p => p.domain).sort();
+      expect(domains).toContain('svc.cloudflare.com');
+      expect(domains).toContain('cloudflare.com');
+    });
+
+    it('adds new subdomain to existing pattern', () => {
+      const tabId = 1;
+      const resolvers = [];
+
+      // First two create the pattern
+      tracker.addPendingDecision(tabId, 'a.api.service.io', (r) => resolvers.push(r));
+      tracker.addPendingDecision(tabId, 'b.api.service.io', (r) => resolvers.push(r));
+
+      // Third should join the pattern
+      tracker.addPendingDecision(tabId, 'c.api.service.io', (r) => resolvers.push(r));
+
+      const pending = tracker.getPendingDomainsForTab(tabId);
+      expect(pending).toHaveLength(1);
+      expect(pending[0].domains).toHaveLength(3);
+
+      // Allow should resolve all
+      tracker.allowDomain(tabId, 'api.service.io');
+      expect(resolvers).toHaveLength(3);
+    });
+
+    it('counts consolidated groups correctly', () => {
+      const tabId = 1;
+
+      // 5 subdomains of cdn.example.com
+      for (let i = 0; i < 5; i++) {
+        tracker.addPendingDecision(tabId, `s${i}.cdn.example.com`, vi.fn());
+      }
+
+      // 3 subdomains of api.example.com
+      for (let i = 0; i < 3; i++) {
+        tracker.addPendingDecision(tabId, `a${i}.api.example.com`, vi.fn());
+      }
+
+      // 1 direct domain
+      tracker.addPendingDecision(tabId, 'other.net', vi.fn());
+
+      // Should count as 3 groups, not 9 individual domains
+      expect(tracker.getPendingDomainCount(tabId)).toBe(3);
+      expect(tracker.getTotalPendingCount()).toBe(3);
+    });
+
+    it('aggregates request counts across consolidated domains', () => {
+      const tabId = 1;
+
+      // Multiple requests to each subdomain
+      for (let i = 0; i < 10; i++) {
+        tracker.addPendingDecision(tabId, 'a.cdn.site.com', vi.fn());
+      }
+      for (let i = 0; i < 20; i++) {
+        tracker.addPendingDecision(tabId, 'b.cdn.site.com', vi.fn());
+      }
+
+      const pending = tracker.getPendingDomainsForTab(tabId);
+      expect(pending).toHaveLength(1);
+      expect(pending[0].count).toBe(30);
+    });
+  });
+
+  describe('Non-consolidatable domains', () => {
+    it('keeps two-part domains separate', () => {
+      const tabId = 1;
+
+      tracker.addPendingDecision(tabId, 'example.com', vi.fn());
+      tracker.addPendingDecision(tabId, 'other.com', vi.fn());
+
+      expect(tracker.getPendingDomainCount(tabId)).toBe(2);
+    });
+
+    it('does not consolidate unrelated subdomains', () => {
+      const tabId = 1;
+
+      tracker.addPendingDecision(tabId, 'a.foo.com', vi.fn());
+      tracker.addPendingDecision(tabId, 'b.bar.com', vi.fn());
+
+      expect(tracker.getPendingDomainCount(tabId)).toBe(2);
+    });
+  });
+});

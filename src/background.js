@@ -353,6 +353,8 @@ browser.tabs.onRemoved.addListener((tabId) => {
 const tempAllowedDomains = new Map();
 
 // Badge update handlers for pending tracker
+const badgeUpdateTimeouts = new Map();
+
 async function updatePageActionBadge(tabId) {
   if (tabId === null) {
     updateBrowserActionBadge();
@@ -382,6 +384,17 @@ async function updatePageActionBadge(tabId) {
   updateBrowserActionBadge();
 }
 
+function debouncedBadgeUpdate(tabId) {
+  const key = tabId ?? 'global';
+  if (badgeUpdateTimeouts.has(key)) {
+    clearTimeout(badgeUpdateTimeouts.get(key));
+  }
+  badgeUpdateTimeouts.set(key, setTimeout(() => {
+    badgeUpdateTimeouts.delete(key);
+    updatePageActionBadge(tabId);
+  }, 50));
+}
+
 function updateBrowserActionBadge() {
   const totalPending = pendingTracker.getTotalPendingCount();
 
@@ -395,7 +408,7 @@ function updateBrowserActionBadge() {
 
 // Create pending tracker instance with 60 second timeout
 const pendingTracker = createPendingTracker({
-  onBadgeUpdate: updatePageActionBadge,
+  onBadgeUpdate: debouncedBadgeUpdate,
   requestTimeout: 60000,
 });
 
@@ -463,15 +476,7 @@ browser.webRequest.onBeforeRequest.addListener(
     // Unknown third-party domain in permanent container - pause and ask user
     const tabId = details.tabId;
 
-    // Only block the FIRST request to this domain - subsequent requests are tracked
-    // but allowed through to prevent browser freeze from too many blocking Promises
-    if (pendingTracker.hasPendingDecision(tabId, requestDomain)) {
-      // Already waiting for decision on this domain - track but don't block
-      pendingTracker.addPendingDomain(tabId, requestDomain);
-      return {};
-    }
-
-    // First request to this domain - block and wait for user decision
+    // Use the pending tracker to handle the request
     return new Promise((resolve) => {
       pendingTracker.addPendingDecision(tabId, requestDomain, resolve);
     });
