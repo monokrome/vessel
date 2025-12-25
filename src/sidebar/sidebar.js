@@ -9,14 +9,17 @@ import {
   createRenameInput
 } from '../lib/ui-shared.js';
 import { TIMING } from '../lib/constants.js';
+import { findMatchingRule } from '../lib/domain.js';
 
 let state = null;
 let containers = [];
 let selectedContainer = null;
 let currentTabId = null;
+let currentTabCookieStoreId = null;
 let pendingRefreshInterval = null;
 let currentTab = 'containers';
 let pendingBlendDomain = null;
+let pendingBlendFromPending = false;
 
 async function loadData() {
   state = await browser.runtime.sendMessage({ type: 'getState' });
@@ -54,16 +57,27 @@ function renderPendingRequests(pending) {
   badge.style.display = 'inline';
   badge.textContent = pending.length;
 
-  list.innerHTML = pending.map(({ domain, count }) => `
-    <div class="pending-item" data-domain="${escapeHtml(domain)}">
-      <span class="pending-domain" title="${escapeHtml(domain)}">${escapeHtml(domain)}</span>
-      <span class="pending-count">${count} req${count > 1 ? 's' : ''}</span>
-      <div class="pending-actions">
-        <button class="allow-btn" data-domain="${escapeHtml(domain)}">Allow</button>
-        <button class="block-btn" data-domain="${escapeHtml(domain)}">Block</button>
+  list.innerHTML = pending.map(({ domain, count }) => {
+    // Check if this is a cross-container request (domain belongs to different container)
+    const domainRule = findMatchingRule(domain, state);
+    const isCrossContainer = domainRule && currentTabCookieStoreId &&
+      domainRule.cookieStoreId !== currentTabCookieStoreId;
+
+    return `
+      <div class="pending-item" data-domain="${escapeHtml(domain)}">
+        <span class="pending-domain" title="${escapeHtml(domain)}">${escapeHtml(domain)}</span>
+        <span class="pending-count">${count} req${count > 1 ? 's' : ''}</span>
+        <div class="pending-actions">
+          ${isCrossContainer
+            ? `<button class="blend-btn" data-domain="${escapeHtml(domain)}" title="Allow ${escapeHtml(domain)} in this container (belongs to ${escapeHtml(domainRule.containerName)})">Blend</button>`
+            : `<button class="allow-btn" data-domain="${escapeHtml(domain)}">Allow</button>`
+          }
+          <button class="once-btn" data-domain="${escapeHtml(domain)}">Once</button>
+          <button class="block-btn" data-domain="${escapeHtml(domain)}">Block</button>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 function switchTab(tab) {
@@ -334,6 +348,7 @@ document.getElementById('newBlend').addEventListener('keypress', (e) => {
 document.getElementById('blendWarningCancel').addEventListener('click', () => {
   document.getElementById('blendWarningOverlay').style.display = 'none';
   pendingBlendDomain = null;
+  pendingBlendFromPending = false;
 });
 
 document.getElementById('blendWarningConfirm').addEventListener('click', async () => {
@@ -342,7 +357,12 @@ document.getElementById('blendWarningConfirm').addEventListener('click', async (
     await browser.runtime.sendMessage({ type: 'setHideBlendWarning', value: true });
   }
   document.getElementById('blendWarningOverlay').style.display = 'none';
-  confirmAddBlend();
+
+  if (pendingBlendFromPending) {
+    await confirmPendingBlend();
+  } else {
+    await confirmAddBlend();
+  }
 });
 
 async function confirmAddBlend() {
@@ -387,7 +407,7 @@ document.getElementById('tabPending').addEventListener('click', () => {
   switchTab('pending');
 });
 
-// Event: Pending list clicks (allow/block)
+// Event: Pending list clicks (allow/block/blend/once)
 document.getElementById('pendingList').addEventListener('click', async (e) => {
   if (!currentTabId) return;
 
@@ -395,6 +415,19 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
   if (!domain) return;
 
   if (e.target.classList.contains('allow-btn')) {
+    // Add to current container permanently
+    const tab = await browser.tabs.get(currentTabId);
+    const tabDomain = new URL(tab.url).hostname;
+    const tabRule = state.domainRules[tabDomain];
+    await browser.runtime.sendMessage({
+      type: 'allowDomain',
+      tabId: currentTabId,
+      domain,
+      addRule: true,
+      containerName: tabRule?.containerName
+    });
+    await refreshPending();
+  } else if (e.target.classList.contains('once-btn')) {
     await browser.runtime.sendMessage({
       type: 'allowOnce',
       tabId: currentTabId,
@@ -405,15 +438,52 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     await browser.runtime.sendMessage({
       type: 'blockDomain',
       tabId: currentTabId,
-      domain
+      domain,
+      addExclusion: true,
+      cookieStoreId: currentTabCookieStoreId
     });
     await refreshPending();
+  } else if (e.target.classList.contains('blend-btn')) {
+    pendingBlendDomain = domain;
+    pendingBlendFromPending = true;
+
+    if (state.hideBlendWarning) {
+      await confirmPendingBlend();
+    } else {
+      document.getElementById('blendWarningOverlay').style.display = 'flex';
+    }
   }
 });
+
+async function confirmPendingBlend() {
+  if (!pendingBlendDomain || !currentTabCookieStoreId) return;
+
+  await browser.runtime.sendMessage({
+    type: 'addBlend',
+    cookieStoreId: currentTabCookieStoreId,
+    domain: pendingBlendDomain
+  });
+  await browser.runtime.sendMessage({
+    type: 'allowOnce',
+    tabId: currentTabId,
+    domain: pendingBlendDomain
+  });
+
+  pendingBlendDomain = null;
+  pendingBlendFromPending = false;
+  await loadData();
+  await refreshPending();
+}
 
 // Listen for tab changes to update pending requests
 browser.tabs.onActivated.addListener(async (activeInfo) => {
   currentTabId = activeInfo.tabId;
+  try {
+    const tab = await browser.tabs.get(activeInfo.tabId);
+    currentTabCookieStoreId = tab.cookieStoreId;
+  } catch {
+    currentTabCookieStoreId = null;
+  }
   await refreshPending();
 });
 
@@ -429,6 +499,7 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   const tab = await getCurrentTab();
   if (tab) {
     currentTabId = tab.id;
+    currentTabCookieStoreId = tab.cookieStoreId;
   }
   await loadData();
   showListView();

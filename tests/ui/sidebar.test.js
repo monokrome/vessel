@@ -546,7 +546,7 @@ describe('Sidebar UI', () => {
       expect(badge.style.display).toBe('none');
     });
 
-    it('sends allowOnce message when clicking Allow', async () => {
+    it('sends allowOnce message when clicking Once', async () => {
       let allowedDomain = null;
 
       browser = createBrowserMock({
@@ -570,7 +570,8 @@ describe('Sidebar UI', () => {
           return null;
         },
       });
-      browser.tabs.query = async () => [{ id: 123, active: true }];
+      browser.tabs.query = async () => [{ id: 123, active: true, cookieStoreId: 'firefox-container-1' }];
+      browser.tabs.get = async () => ({ id: 123, url: 'https://example.com', cookieStoreId: 'firefox-container-1' });
       globalThis.browser = browser;
 
       await loadSidebar();
@@ -579,17 +580,61 @@ describe('Sidebar UI', () => {
       document.getElementById('tabPending').click();
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      // Click Allow button
-      const allowBtn = document.querySelector('.allow-btn');
-      allowBtn.click();
+      // Click Once button (temporary allow)
+      const onceBtn = document.querySelector('.once-btn');
+      onceBtn.click();
 
       await new Promise(resolve => setTimeout(resolve, 10));
 
       expect(allowedDomain).toBe('tracker.com');
     });
 
+    it('sends allowDomain message when clicking Allow', async () => {
+      let allowedMessage = null;
+
+      browser = createBrowserMock({
+        containers: [
+          { cookieStoreId: 'firefox-container-1', name: 'Work', color: 'blue', icon: 'briefcase' },
+        ],
+        messageHandler: async (message) => {
+          if (message.type === 'getState') return state;
+          if (message.type === 'getContainers') {
+            return browser.contextualIdentities._getContainers();
+          }
+          if (message.type === 'getPendingRequests') {
+            return [
+              { domain: 'tracker.com', count: 3, firstSeen: Date.now() },
+            ];
+          }
+          if (message.type === 'allowDomain') {
+            allowedMessage = message;
+            return { success: true };
+          }
+          return null;
+        },
+      });
+      browser.tabs.query = async () => [{ id: 123, active: true, cookieStoreId: 'firefox-container-1' }];
+      browser.tabs.get = async () => ({ id: 123, url: 'https://example.com', cookieStoreId: 'firefox-container-1' });
+      globalThis.browser = browser;
+
+      await loadSidebar();
+
+      // Switch to pending tab
+      document.getElementById('tabPending').click();
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Click Allow button (permanent add)
+      const allowBtn = document.querySelector('.allow-btn');
+      allowBtn.click();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(allowedMessage.domain).toBe('tracker.com');
+      expect(allowedMessage.addRule).toBe(true);
+    });
+
     it('sends blockDomain message when clicking Block', async () => {
-      let blockedDomain = null;
+      let blockedMessage = null;
 
       browser = createBrowserMock({
         containers: [
@@ -606,13 +651,14 @@ describe('Sidebar UI', () => {
             ];
           }
           if (message.type === 'blockDomain') {
-            blockedDomain = message.domain;
+            blockedMessage = message;
             return { success: true };
           }
           return null;
         },
       });
-      browser.tabs.query = async () => [{ id: 123, active: true }];
+      browser.tabs.query = async () => [{ id: 123, active: true, cookieStoreId: 'firefox-container-1' }];
+      browser.tabs.get = async () => ({ id: 123, url: 'https://example.com', cookieStoreId: 'firefox-container-1' });
       globalThis.browser = browser;
 
       await loadSidebar();
@@ -627,7 +673,9 @@ describe('Sidebar UI', () => {
 
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(blockedDomain).toBe('tracker.com');
+      expect(blockedMessage.domain).toBe('tracker.com');
+      expect(blockedMessage.addExclusion).toBe(true);
+      expect(blockedMessage.cookieStoreId).toBe('firefox-container-1');
     });
   });
 });
