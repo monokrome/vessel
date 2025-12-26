@@ -19,6 +19,7 @@ let currentTabCookieStoreId = null;
 let pendingRefreshInterval = null;
 let currentTab = 'containers';
 let pendingBlendDomain = null;
+let pendingBlendRuleDomain = null;
 let pendingBlendFromPending = false;
 
 async function loadData() {
@@ -69,7 +70,7 @@ function renderPendingRequests(pending) {
         <span class="pending-count">${count} req${count > 1 ? 's' : ''}</span>
         <div class="pending-actions">
           ${isCrossContainer
-            ? `<button class="blend-btn" data-domain="${escapeHtml(domain)}" title="Allow ${escapeHtml(domain)} in this container (belongs to ${escapeHtml(domainRule.containerName)})">Blend</button>`
+            ? `<button class="blend-btn" data-domain="${escapeHtml(domain)}" data-rule-domain="${escapeHtml(domainRule.domain)}" title="Blend ${escapeHtml(domainRule.domain)} into this container (from ${escapeHtml(domainRule.containerName)})">Blend</button>`
             : `<button class="allow-btn" data-domain="${escapeHtml(domain)}">Allow</button>`
           }
           <button class="once-btn" data-domain="${escapeHtml(domain)}">Once</button>
@@ -348,6 +349,7 @@ document.getElementById('newBlend').addEventListener('keypress', (e) => {
 document.getElementById('blendWarningCancel').addEventListener('click', () => {
   document.getElementById('blendWarningOverlay').style.display = 'none';
   pendingBlendDomain = null;
+  pendingBlendRuleDomain = null;
   pendingBlendFromPending = false;
 });
 
@@ -445,6 +447,7 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     await refreshPending();
   } else if (e.target.classList.contains('blend-btn')) {
     pendingBlendDomain = domain;
+    pendingBlendRuleDomain = e.target.dataset.ruleDomain || domain;
     pendingBlendFromPending = true;
 
     if (state.hideBlendWarning) {
@@ -458,11 +461,14 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
 async function confirmPendingBlend() {
   if (!pendingBlendDomain || !currentTabCookieStoreId) return;
 
+  // Add the rule's domain to blends (not the subdomain) so all subdomains are covered
+  const domainToBlend = pendingBlendRuleDomain || pendingBlendDomain;
   await browser.runtime.sendMessage({
     type: 'addBlend',
     cookieStoreId: currentTabCookieStoreId,
-    domain: pendingBlendDomain
+    domain: domainToBlend
   });
+  // Allow the specific pending request to proceed
   await browser.runtime.sendMessage({
     type: 'allowOnce',
     tabId: currentTabId,
@@ -470,6 +476,7 @@ async function confirmPendingBlend() {
   });
 
   pendingBlendDomain = null;
+  pendingBlendRuleDomain = null;
   pendingBlendFromPending = false;
   await loadData();
   await refreshPending();

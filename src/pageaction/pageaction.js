@@ -8,6 +8,7 @@ let state = null;
 let containers = [];
 let pendingRequests = [];
 let pendingBlendDomain = null;
+let pendingBlendRuleDomain = null;
 
 async function init() {
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
@@ -76,7 +77,7 @@ function renderPendingList() {
         </div>
         <div class="pending-actions">
           ${isCrossContainer
-            ? `<button class="btn-blend" data-action="blend" title="Allow ${escapeAttr(req.domain)} in this container (belongs to ${escapeAttr(domainRule.containerName)})">Blend containers</button>`
+            ? `<button class="btn-blend" data-action="blend" data-rule-domain="${escapeAttr(domainRule.domain)}" title="Blend ${escapeAttr(domainRule.domain)} into this container (from ${escapeAttr(domainRule.containerName)})">Blend containers</button>`
             : `<button class="btn-allow" data-action="allow" title="Add to ${escapeAttr(containerName)} permanently">Add to container</button>`
           }
           <button class="btn-once" data-action="once" title="Allow this time only">Allow once</button>
@@ -196,20 +197,23 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
       containerName: existingRule?.containerName
     });
   } else if (action === 'blend') {
+    const ruleDomain = btn.dataset.ruleDomain || domain;
+
     if (state.hideBlendWarning) {
-      await performBlend(domain);
+      await performBlend(domain, ruleDomain);
       state = await browser.runtime.sendMessage({ type: 'getState' });
       await loadPendingRequests();
       return;
     }
 
-    const domainRule = state.domainRules[domain];
+    const domainRule = findMatchingRule(domain, state);
     const currentContainerRule = state.domainRules[currentDomain];
     const sourceContainerName = domainRule?.containerName || 'another container';
     const targetContainerName = currentContainerRule?.containerName || 'this container';
 
     pendingBlendDomain = domain;
-    document.getElementById('confirmDomain').textContent = domain;
+    pendingBlendRuleDomain = ruleDomain;
+    document.getElementById('confirmDomain').textContent = ruleDomain;
     document.getElementById('confirmMessage').textContent =
       `This domain belongs to the ${sourceContainerName} container. Blending into ${targetContainerName} allows cross-container requests from ${sourceContainerName} to ${targetContainerName} which could be used to track or otherwise undermine your privacy. Only do this if it is absolutely necessary.`;
     document.getElementById('confirmDontShowAgain').checked = false;
@@ -235,22 +239,25 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
   await loadPendingRequests();
 });
 
-async function performBlend(domain) {
+async function performBlend(requestDomain, ruleDomain) {
+  // Add the rule's domain to blends (not the subdomain) so all subdomains are covered
   await browser.runtime.sendMessage({
     type: 'addBlend',
     cookieStoreId: currentTab.cookieStoreId,
-    domain: domain
+    domain: ruleDomain || requestDomain
   });
+  // Allow the specific pending request to proceed
   await browser.runtime.sendMessage({
     type: 'allowOnce',
     tabId: currentTab.id,
-    domain: domain
+    domain: requestDomain
   });
 }
 
 // Event: Cancel blend confirmation
 document.getElementById('confirmCancel').addEventListener('click', () => {
   pendingBlendDomain = null;
+  pendingBlendRuleDomain = null;
   document.getElementById('confirmOverlay').classList.remove('active');
 });
 
@@ -258,10 +265,12 @@ document.getElementById('confirmCancel').addEventListener('click', () => {
 document.getElementById('confirmBlend').addEventListener('click', async () => {
   if (!pendingBlendDomain) return;
 
-  const domain = pendingBlendDomain;
+  const requestDomain = pendingBlendDomain;
+  const ruleDomain = pendingBlendRuleDomain;
   const dontShowAgain = document.getElementById('confirmDontShowAgain').checked;
 
   pendingBlendDomain = null;
+  pendingBlendRuleDomain = null;
   document.getElementById('confirmOverlay').classList.remove('active');
 
   if (dontShowAgain) {
@@ -271,7 +280,7 @@ document.getElementById('confirmBlend').addEventListener('click', async () => {
     });
   }
 
-  await performBlend(domain);
+  await performBlend(requestDomain, ruleDomain);
 
   state = await browser.runtime.sendMessage({ type: 'getState' });
   await loadPendingRequests();
@@ -281,6 +290,7 @@ document.getElementById('confirmBlend').addEventListener('click', async () => {
 document.getElementById('confirmOverlay').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) {
     pendingBlendDomain = null;
+    pendingBlendRuleDomain = null;
     document.getElementById('confirmOverlay').classList.remove('active');
   }
 });
