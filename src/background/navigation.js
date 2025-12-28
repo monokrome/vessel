@@ -121,14 +121,18 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
     recentlyCreatedTabs.add(newTab.id);
     setTimeout(() => recentlyCreatedTabs.delete(newTab.id), TIMING.recentTabExpiry);
 
+    const originalUrl = tab.url;
     await browser.tabs.remove(tab.id);
 
     // Remove the closed tab from session history to prevent Ctrl+Shift+T loops
-    // The tab we just closed will be the most recent in the closed tabs list
+    // Verify URL matches to avoid forgetting unrelated tabs due to race conditions
     try {
       const recentlyClosed = await browser.sessions.getRecentlyClosed({ maxResults: 1 });
       if (recentlyClosed.length > 0 && recentlyClosed[0].tab) {
-        await browser.sessions.forgetClosedTab(windowId, recentlyClosed[0].tab.sessionId);
+        const closedTab = recentlyClosed[0].tab;
+        if (closedTab.url === originalUrl || closedTab.url === targetUrl) {
+          await browser.sessions.forgetClosedTab(windowId, closedTab.sessionId);
+        }
       }
     } catch {
       // Ignore errors - forgetClosedTab is best-effort
