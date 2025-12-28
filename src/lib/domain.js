@@ -99,7 +99,19 @@ export function getEffectiveSubdomainSetting(rule, state) {
 
 export function isExcludedFromContainer(domain, cookieStoreId, state) {
   const exclusions = state.containerExclusions[cookieStoreId] || [];
-  return exclusions.includes(domain);
+  if (exclusions.length === 0) return false;
+
+  // Check exact match first
+  if (exclusions.includes(domain)) return true;
+
+  // Check if any parent domain is excluded
+  let current = getParentDomain(domain);
+  while (current) {
+    if (exclusions.includes(current)) return true;
+    current = getParentDomain(current);
+  }
+
+  return false;
 }
 
 export function isBlendedInContainer(domain, cookieStoreId, state) {

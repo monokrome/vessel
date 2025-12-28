@@ -260,6 +260,28 @@ describe('isExcludedFromContainer', () => {
     const state = { containerExclusions: {} };
     expect(isExcludedFromContainer('api.example.com', 'container-1', state)).toBe(false);
   });
+
+  it('returns true for subdomain when parent is excluded', () => {
+    const state = {
+      containerExclusions: { 'container-1': ['doubleclick.net'] },
+    };
+    expect(isExcludedFromContainer('ad.doubleclick.net', 'container-1', state)).toBe(true);
+    expect(isExcludedFromContainer('stats.doubleclick.net', 'container-1', state)).toBe(true);
+  });
+
+  it('returns true for deeply nested subdomain when ancestor is excluded', () => {
+    const state = {
+      containerExclusions: { 'container-1': ['doubleclick.net'] },
+    };
+    expect(isExcludedFromContainer('pixel.ad.doubleclick.net', 'container-1', state)).toBe(true);
+  });
+
+  it('does not match unrelated domains for exclusions', () => {
+    const state = {
+      containerExclusions: { 'container-1': ['doubleclick.net'] },
+    };
+    expect(isExcludedFromContainer('notdoubleclick.net', 'container-1', state)).toBe(false);
+  });
 });
 
 describe('isBlendedInContainer', () => {
