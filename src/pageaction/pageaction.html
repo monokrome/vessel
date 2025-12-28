@@ -42,7 +42,7 @@
     body {
       font-family: system-ui, -apple-system, sans-serif;
       font-size: 13px;
-      width: 250px;
+      width: 375px;
       background: var(--bg-primary);
       color: var(--text-primary);
     }
@@ -176,11 +176,16 @@
       border-bottom: 1px solid var(--border-color);
     }
 
+    .pending-item:nth-child(even) {
+      background: var(--bg-secondary);
+    }
+
     .pending-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
       margin-bottom: 6px;
+      flex-wrap: wrap;
     }
 
     .pending-domain {
@@ -188,9 +193,7 @@
       font-family: monospace;
       font-size: 11px;
       color: var(--text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      word-break: break-all;
     }
 
     .domain-part {

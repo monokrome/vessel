@@ -88,15 +88,11 @@ async function init() {
   const isInContainer = currentTab.cookieStoreId !== 'firefox-default';
 
   if (isInContainer) {
-    // Hide container picker when already in a container
+    // Hide container picker and header when already in a container
+    // (container name visible above popup, domain visible in URL bar)
+    document.querySelector('.header').style.display = 'none';
     document.getElementById('containerList').style.display = 'none';
     document.querySelector('.new-container').style.display = 'none';
-
-    // Update header to show current container
-    const container = containers.find(c => c.cookieStoreId === currentTab.cookieStoreId);
-    const containerName = container?.name || existingRule?.containerName || 'Container';
-    document.querySelector('.header-label').textContent = 'Current domain';
-    document.getElementById('currentContainer').textContent = `In: ${containerName}`;
   } else {
     if (existingRule) {
       document.getElementById('currentContainer').textContent =
@@ -138,7 +134,7 @@ function renderPendingList() {
     return `
       <div class="pending-item" data-domain="${escapeAttr(req.domain)}">
         <div class="pending-header">
-          <span class="pending-domain">${renderSelectableDomain(req.domain)}</span>
+          <span class="pending-domain" title="${escapeAttr(req.domain)}">${renderSelectableDomain(req.domain)}</span>
           <span class="pending-count">${req.count} waiting</span>
         </div>
         <div class="pending-actions">
