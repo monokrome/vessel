@@ -193,6 +193,30 @@
       white-space: nowrap;
     }
 
+    .domain-part {
+      cursor: pointer;
+      padding: 1px 2px;
+      border-radius: 2px;
+      transition: background 0.1s, color 0.1s;
+    }
+
+    .domain-part:hover {
+      background: var(--bg-hover);
+    }
+
+    .domain-part.selected {
+      background: var(--link-color);
+      color: var(--bg-primary);
+    }
+
+    .domain-part-fixed {
+      color: var(--text-secondary);
+    }
+
+    .domain-dot {
+      color: var(--text-secondary);
+    }
+
     .pending-count {
       font-size: 10px;
       color: var(--text-secondary);

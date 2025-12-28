@@ -1,6 +1,6 @@
 import { escapeHtml, escapeAttr, getContainerColor } from '../lib/ui-shared.js';
 import { DEFAULT_CONTAINER } from '../lib/constants.js';
-import { findMatchingRule } from '../lib/domain.js';
+import { findMatchingRule, getParentDomain } from '../lib/domain.js';
 
 let currentDomain = null;
 let currentTab = null;
@@ -9,6 +9,57 @@ let containers = [];
 let pendingRequests = [];
 let pendingBlendDomain = null;
 let pendingBlendRuleDomain = null;
+// Track selected domain level per pending domain (default: full domain)
+const selectedDomainLevels = new Map();
+
+/**
+ * Get all selectable domain levels for a domain.
+ * Returns array from most specific to least specific, excluding TLD-only.
+ * e.g., "api.google.com" → ["api.google.com", "google.com"]
+ */
+function getDomainLevels(domain) {
+  const levels = [domain];
+  let current = getParentDomain(domain);
+  while (current) {
+    const parts = current.split('.');
+    // Stop if we'd only have the TLD left
+    if (parts.length <= 1) break;
+    levels.push(current);
+    current = getParentDomain(current);
+  }
+  return levels;
+}
+
+/**
+ * Render domain with clickable parts for level selection.
+ * Selected level is highlighted.
+ */
+function renderSelectableDomain(domain) {
+  const levels = getDomainLevels(domain);
+  const selectedLevel = selectedDomainLevels.get(domain) || domain;
+  const parts = domain.split('.');
+
+  // Build clickable parts - each part selects from that point to the end
+  let html = '';
+  for (let i = 0; i < parts.length; i++) {
+    const levelFromHere = parts.slice(i).join('.');
+    const isSelectable = levels.includes(levelFromHere);
+    const isSelected = levelFromHere === selectedLevel;
+    const isTld = i === parts.length - 1;
+
+    if (i > 0) html += '<span class="domain-dot">.</span>';
+
+    if (isTld || !isSelectable) {
+      // TLD or non-selectable: just text
+      html += `<span class="domain-part-fixed">${escapeHtml(parts[i])}</span>`;
+    } else {
+      // Clickable part
+      html += `<span class="domain-part${isSelected ? ' selected' : ''}" data-level="${escapeAttr(levelFromHere)}">${escapeHtml(parts[i])}</span>`;
+    }
+  }
+
+  return html;
+}
 
 async function init() {
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
@@ -34,12 +85,26 @@ async function init() {
   containers = await browser.runtime.sendMessage({ type: 'getContainers' });
 
   const existingRule = state.domainRules[currentDomain];
-  if (existingRule) {
-    document.getElementById('currentContainer').textContent =
-      `Currently: ${existingRule.containerName}`;
+  const isInContainer = currentTab.cookieStoreId !== 'firefox-default';
+
+  if (isInContainer) {
+    // Hide container picker when already in a container
+    document.getElementById('containerList').style.display = 'none';
+    document.querySelector('.new-container').style.display = 'none';
+
+    // Update header to show current container
+    const container = containers.find(c => c.cookieStoreId === currentTab.cookieStoreId);
+    const containerName = container?.name || existingRule?.containerName || 'Container';
+    document.querySelector('.header-label').textContent = 'Current domain';
+    document.getElementById('currentContainer').textContent = `In: ${containerName}`;
+  } else {
+    if (existingRule) {
+      document.getElementById('currentContainer').textContent =
+        `Currently: ${existingRule.containerName}`;
+    }
+    renderContainerList();
   }
 
-  renderContainerList();
   await loadPendingRequests();
 }
 
@@ -68,20 +133,21 @@ function renderPendingList() {
   list.innerHTML = pendingRequests.map(req => {
     const domainRule = findMatchingRule(req.domain, state);
     const isCrossContainer = domainRule && domainRule.cookieStoreId !== currentTab.cookieStoreId;
+    const selectedLevel = selectedDomainLevels.get(req.domain) || req.domain;
 
     return `
       <div class="pending-item" data-domain="${escapeAttr(req.domain)}">
         <div class="pending-header">
-          <span class="pending-domain" title="${escapeAttr(req.domain)}">${escapeHtml(req.domain)}</span>
+          <span class="pending-domain">${renderSelectableDomain(req.domain)}</span>
           <span class="pending-count">${req.count} waiting</span>
         </div>
         <div class="pending-actions">
           ${isCrossContainer
             ? `<button class="btn-blend" data-action="blend" data-rule-domain="${escapeAttr(domainRule.domain)}" title="Blend ${escapeAttr(domainRule.domain)} into this container (from ${escapeAttr(domainRule.containerName)})">Blend containers</button>`
-            : `<button class="btn-allow" data-action="allow" title="Add to ${escapeAttr(containerName)} permanently">Add to container</button>`
+            : `<button class="btn-allow" data-action="allow" title="Add ${escapeAttr(selectedLevel)} to ${escapeAttr(containerName)}">Add to container</button>`
           }
           <button class="btn-once" data-action="once" title="Allow this time only">Allow once</button>
-          <button class="btn-block" data-action="block" title="Block and remember">Block</button>
+          <button class="btn-block" data-action="block" title="Block ${escapeAttr(selectedLevel)} in this container">Block</button>
         </div>
       </div>
     `;
@@ -177,14 +243,28 @@ document.getElementById('newContainerName').addEventListener('keypress', (e) => 
   if (e.key === 'Enter') document.getElementById('createContainerBtn').click();
 });
 
-// Event: Handle pending request actions
+// Event: Handle pending request actions and domain level selection
 document.getElementById('pendingList').addEventListener('click', async (e) => {
+  // Handle domain part clicks for level selection
+  const domainPart = e.target.closest('.domain-part');
+  if (domainPart) {
+    const item = domainPart.closest('.pending-item');
+    const domain = item.dataset.domain;
+    const selectedLevel = domainPart.dataset.level;
+    selectedDomainLevels.set(domain, selectedLevel);
+    renderPendingList();
+    return;
+  }
+
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
 
   const item = btn.closest('.pending-item');
   const domain = item.dataset.domain;
   const action = btn.dataset.action;
+  // Use selected level for allow/block, but original domain for allow-once
+  const selectedLevel = selectedDomainLevels.get(domain) || domain;
+  const isParentSelected = selectedLevel !== domain;
 
   const existingRule = state.domainRules[currentDomain];
 
@@ -192,9 +272,11 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     await browser.runtime.sendMessage({
       type: 'allowDomain',
       tabId: currentTab.id,
-      domain: domain,
+      domain: selectedLevel,
       addRule: true,
-      containerName: existingRule?.containerName
+      containerName: existingRule?.containerName,
+      // Enable subdomains if user selected a parent domain
+      enableSubdomains: isParentSelected
     });
   } else if (action === 'blend') {
     const ruleDomain = btn.dataset.ruleDomain || domain;
@@ -229,7 +311,7 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     await browser.runtime.sendMessage({
       type: 'blockDomain',
       tabId: currentTab.id,
-      domain: domain,
+      domain: selectedLevel,
       addExclusion: true,
       cookieStoreId: currentTab.cookieStoreId
     });

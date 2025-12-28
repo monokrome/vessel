@@ -653,7 +653,8 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
         state.domainRules[message.domain] = {
           cookieStoreId: container.cookieStoreId,
           containerName: message.containerName,
-          subdomains: null
+          // Enable subdomains if user explicitly selected a parent domain
+          subdomains: message.enableSubdomains ? true : null
         };
         await saveState();
       }
