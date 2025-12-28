@@ -213,81 +213,118 @@ function isIgnoredUrl(url) {
          IGNORED_URLS.includes(url);
 }
 
-async function handleNavigation(tabId, url) {
-  if (isIgnoredUrl(url)) {
-    return;
-  }
+// New tab pages that can be safely closed when switching containers
+const NEW_TAB_PAGES = new Set([
+  'about:newtab',
+  'about:home',
+  'about:blank'
+]);
 
-  // Skip tabs we just created or are currently moving
-  if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
-    return;
-  }
+/**
+ * Synchronously determine if a URL should open in a different container.
+ * Returns { targetCookieStoreId, shouldAsk, askInfo } or null if no switch needed.
+ */
+function getContainerForUrl(url, currentCookieStoreId) {
+  if (isIgnoredUrl(url)) return null;
 
   const domain = extractDomain(url);
-  if (!domain) return;
+  if (!domain) return null;
 
-  let tab;
-  try {
-    tab = await browser.tabs.get(tabId);
-  } catch {
-    // Tab may have been closed
-    return;
-  }
+  const isInPermanentContainer = currentCookieStoreId !== FIREFOX_DEFAULT_CONTAINER &&
+    !state.tempContainers.includes(currentCookieStoreId);
 
-  // Check if already in a non-default container that we didn't create
-  const isInPermanentContainer = tab.cookieStoreId !== FIREFOX_DEFAULT_CONTAINER &&
-    !state.tempContainers.includes(tab.cookieStoreId);
-
-  // 1. Check for direct domain match or subdomain match in rules
+  // Check for matching rule
   const rule = findMatchingRule(domain, state);
 
+  // Subdomain with "ask" setting
   if (rule && rule.shouldAsk) {
-    // Redirect to ask page
-    const askUrl = browser.runtime.getURL('ask/ask.html') +
-      `?url=${encodeURIComponent(url)}` +
-      `&subdomain=${encodeURIComponent(rule.subdomainUrl)}` +
-      `&parent=${encodeURIComponent(rule.domain)}` +
-      `&container=${encodeURIComponent(rule.containerName)}` +
-      `&cookieStoreId=${encodeURIComponent(rule.cookieStoreId)}` +
-      `&tabId=${tab.id}`;
-    await browser.tabs.update(tab.id, { url: askUrl });
-    return;
+    return {
+      shouldAsk: true,
+      askInfo: {
+        url,
+        subdomain: rule.subdomainUrl,
+        parent: rule.domain,
+        container: rule.containerName,
+        cookieStoreId: rule.cookieStoreId
+      }
+    };
   }
 
-  if (rule && !rule.isSubdomainMatch) {
-    await reopenInContainer(tab, rule.cookieStoreId, url);
-    return;
+  // Direct match or subdomain match - switch to rule's container
+  if (rule && rule.cookieStoreId !== currentCookieStoreId) {
+    return { targetCookieStoreId: rule.cookieStoreId };
   }
 
-  // 2. Subdomain matched with subdomains=true
-  if (rule && rule.isSubdomainMatch) {
-    await reopenInContainer(tab, rule.cookieStoreId, url);
-    return;
+  // Already in correct container for this rule
+  if (rule && rule.cookieStoreId === currentCookieStoreId) {
+    return null;
   }
 
-  // 3. No rules match - determine what to do
-  if (tab.cookieStoreId === FIREFOX_DEFAULT_CONTAINER) {
-    // From default container - use temp container
-    const tempContainer = await createTempContainer();
-    await reopenInContainer(tab, tempContainer.cookieStoreId, url);
-    return;
+  // No rule - determine based on current container
+  if (currentCookieStoreId === FIREFOX_DEFAULT_CONTAINER) {
+    // From default container - needs temp container
+    return { needsTempContainer: true };
   }
 
-  // 4. Already in a permanent container - check if URL belongs there
+  // In a permanent container - check if URL belongs there
   if (isInPermanentContainer) {
-    // Check if domain is a subdomain of any domain ruled for THIS container
     const containerRules = Object.entries(state.domainRules)
-      .filter(([_, r]) => r.cookieStoreId === tab.cookieStoreId);
+      .filter(([_, r]) => r.cookieStoreId === currentCookieStoreId);
 
     const belongsToThisContainer = containerRules.some(([ruledDomain]) =>
       domain === ruledDomain || isSubdomainOf(domain, ruledDomain)
     );
 
     if (!belongsToThisContainer) {
-      // URL doesn't belong to this container's domains - move to temp
-      const tempContainer = await createTempContainer();
-      await reopenInContainer(tab, tempContainer.cookieStoreId, url);
+      // URL doesn't belong to this container - needs temp container
+      return { needsTempContainer: true };
     }
+  }
+
+  // No switch needed
+  return null;
+}
+
+/**
+ * Handle main_frame navigation by switching containers if needed.
+ * Called async after webRequest returns {cancel: true}.
+ */
+async function handleMainFrameSwitch(tabId, url, containerInfo) {
+  let tab;
+  try {
+    tab = await browser.tabs.get(tabId);
+  } catch {
+    return; // Tab closed
+  }
+
+  if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
+    return;
+  }
+
+  let targetCookieStoreId = containerInfo.targetCookieStoreId;
+
+  // Create temp container if needed
+  if (containerInfo.needsTempContainer) {
+    const tempContainer = await createTempContainer();
+    targetCookieStoreId = tempContainer.cookieStoreId;
+  }
+
+  // Handle "ask" case
+  if (containerInfo.shouldAsk) {
+    const askUrl = browser.runtime.getURL('ask/ask.html') +
+      `?url=${encodeURIComponent(containerInfo.askInfo.url)}` +
+      `&subdomain=${encodeURIComponent(containerInfo.askInfo.subdomain)}` +
+      `&parent=${encodeURIComponent(containerInfo.askInfo.parent)}` +
+      `&container=${encodeURIComponent(containerInfo.askInfo.container)}` +
+      `&cookieStoreId=${encodeURIComponent(containerInfo.askInfo.cookieStoreId)}` +
+      `&tabId=${tab.id}`;
+    await browser.tabs.update(tab.id, { url: askUrl });
+    return;
+  }
+
+  // Switch to target container
+  if (targetCookieStoreId && targetCookieStoreId !== tab.cookieStoreId) {
+    await reopenInContainer(tab, targetCookieStoreId, url);
   }
 }
 
@@ -296,11 +333,11 @@ async function handleNavigation(tabId, url) {
 // ============================================================================
 
 browser.webNavigation.onBeforeNavigate.addListener(
-  async (details) => {
+  (details) => {
     if (details.frameId !== 0) return; // Only main frame
     // Clear pending domains on any navigation (including refresh)
+    // Container switching is now handled in webRequest.onBeforeRequest
     pendingTracker.clearPendingDomainsForTab(details.tabId);
-    await handleNavigation(details.tabId, details.url);
   },
   { url: [{ schemes: ['http', 'https'] }] }
 );
@@ -445,8 +482,31 @@ browser.webRequest.onBeforeRequest.addListener(
   (details) => {
     const startTime = performance.now();
 
-    // Skip main frame navigations (handled by webNavigation)
+    // Handle main_frame navigations - check if container switch needed
     if (details.type === 'main_frame') {
+      // Skip tabs we just created
+      if (recentlyCreatedTabs.has(details.tabId) || tabsBeingMoved.has(details.tabId)) {
+        return {};
+      }
+
+      // Skip extension pages
+      if (IGNORED_SCHEMES.some(scheme => details.url.startsWith(scheme))) {
+        return {};
+      }
+
+      // Check if we need to switch containers
+      // details.cookieStoreId is the container the request is coming from
+      const containerInfo = getContainerForUrl(details.url, details.cookieStoreId);
+
+      if (containerInfo) {
+        // Cancel the request and handle switch async
+        // Using setTimeout to ensure we return {cancel: true} first
+        setTimeout(() => {
+          handleMainFrameSwitch(details.tabId, details.url, containerInfo);
+        }, 0);
+        return { cancel: true };
+      }
+
       return {};
     }
 
