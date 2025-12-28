@@ -11,6 +11,7 @@
     "contextualIdentities",
     "cookies",
     "menus",
+    "sessions",
     "storage",
     "tabs",
     "webNavigation",

@@ -177,6 +177,8 @@ async function reopenInContainer(tab, cookieStoreId, url) {
   tabsBeingMoved.add(tab.id);
 
   try {
+    const windowId = tab.windowId;
+
     const newTab = await browser.tabs.create({
       url: targetUrl,
       cookieStoreId,
@@ -189,6 +191,17 @@ async function reopenInContainer(tab, cookieStoreId, url) {
     setTimeout(() => recentlyCreatedTabs.delete(newTab.id), TIMING.recentTabExpiry);
 
     await browser.tabs.remove(tab.id);
+
+    // Remove the closed tab from session history to prevent Ctrl+Shift+T loops
+    // The tab we just closed will be the most recent in the closed tabs list
+    try {
+      const recentlyClosed = await browser.sessions.getRecentlyClosed({ maxResults: 1 });
+      if (recentlyClosed.length > 0 && recentlyClosed[0].tab) {
+        await browser.sessions.forgetClosedTab(windowId, recentlyClosed[0].tab.sessionId);
+      }
+    } catch {
+      // Ignore errors - forgetClosedTab is best-effort
+    }
   } finally {
     tabsBeingMoved.delete(tab.id);
   }
