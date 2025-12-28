@@ -6,10 +6,13 @@ import {
   renderDomainList,
   renderExclusionList,
   renderBlendList,
-  createRenameInput
+  createRenameInput,
+  getDomainsForContainer,
+  getExclusionsForContainer
 } from '../lib/ui-shared.js';
 import { TIMING } from '../lib/constants.js';
 import { findMatchingRule } from '../lib/domain.js';
+import { matchesContainer, debounce } from '../lib/fuzzy.js';
 
 let state = null;
 let containers = [];
@@ -21,6 +24,8 @@ let currentTab = 'containers';
 let pendingBlendDomain = null;
 let pendingBlendRuleDomain = null;
 let pendingBlendFromPending = false;
+let headerTab = 'home';
+let searchQuery = '';
 
 async function loadData() {
   state = await browser.runtime.sendMessage({ type: 'getState' });
@@ -88,17 +93,25 @@ function switchTab(tab) {
   document.getElementById('tabPending').classList.toggle('active', tab === 'pending');
 
   if (tab === 'containers') {
-    if (selectedContainer) {
+    document.getElementById('pendingView').style.display = 'none';
+    // Defer to switchHeaderTab for which view to show
+    if (headerTab === 'settings') {
       document.getElementById('listView').style.display = 'none';
+      document.getElementById('detailView').style.display = 'none';
+      document.getElementById('settingsView').style.display = 'block';
+    } else if (selectedContainer) {
+      document.getElementById('listView').style.display = 'none';
+      document.getElementById('settingsView').style.display = 'none';
       document.getElementById('detailView').style.display = 'block';
     } else {
-      document.getElementById('listView').style.display = 'block';
+      document.getElementById('settingsView').style.display = 'none';
       document.getElementById('detailView').style.display = 'none';
+      document.getElementById('listView').style.display = 'block';
     }
-    document.getElementById('pendingView').style.display = 'none';
   } else {
     document.getElementById('listView').style.display = 'none';
     document.getElementById('detailView').style.display = 'none';
+    document.getElementById('settingsView').style.display = 'none';
     document.getElementById('pendingView').style.display = 'block';
   }
 }
@@ -116,16 +129,61 @@ function startPendingRefresh() {
   pendingRefreshInterval = setInterval(refreshPending, TIMING.pendingRefreshInterval);
 }
 
+function switchHeaderTab(tab) {
+  headerTab = tab;
+
+  // Update header tab button states in both views
+  document.getElementById('tabHome').classList.toggle('active', tab === 'home');
+  document.getElementById('tabSettings').classList.toggle('active', tab === 'settings');
+  document.getElementById('tabHomeFromSettings').classList.toggle('active', tab === 'home');
+  document.getElementById('tabSettingsFromSettings').classList.toggle('active', tab === 'settings');
+
+  // Show/hide views based on header tab
+  if (tab === 'home') {
+    document.getElementById('settingsView').style.display = 'none';
+    if (selectedContainer) {
+      document.getElementById('listView').style.display = 'none';
+      document.getElementById('detailView').style.display = 'block';
+    } else {
+      document.getElementById('listView').style.display = 'block';
+      document.getElementById('detailView').style.display = 'none';
+    }
+  } else {
+    document.getElementById('listView').style.display = 'none';
+    document.getElementById('detailView').style.display = 'none';
+    document.getElementById('settingsView').style.display = 'block';
+  }
+}
+
+function createFilterFn() {
+  if (!searchQuery) return null;
+  return (container, domains, exclusions) =>
+    matchesContainer(searchQuery, container, domains, exclusions);
+}
+
+function renderFilteredContainerList() {
+  renderContainerList(containers, state, document.getElementById('containerList'), createFilterFn());
+}
+
+const debouncedFilter = debounce(() => {
+  if (headerTab === 'home' && !selectedContainer) {
+    renderFilteredContainerList();
+  }
+}, 150);
+
 function showListView() {
   selectedContainer = null;
-  renderContainerList(containers, state, document.getElementById('containerList'));
+  headerTab = 'home';
+  renderFilteredContainerList();
   updateToggle(document.getElementById('globalSubdomainsToggle'), state.globalSubdomains);
   updateToggle(document.getElementById('stripWwwToggle'), state.stripWww);
+  switchHeaderTab('home');
   switchTab('containers');
 }
 
 function showDetailView(container) {
   selectedContainer = container;
+  headerTab = 'home';
   document.getElementById('detailTitle').textContent = container.name;
 
   const containerSetting = state.containerSubdomains[container.cookieStoreId] ?? null;
@@ -134,6 +192,7 @@ function showDetailView(container) {
   renderDomainList(state, container.cookieStoreId, document.getElementById('domainList'));
   renderExclusionList(state, container.cookieStoreId, document.getElementById('exclusionList'));
   renderBlendList(state, container.cookieStoreId, document.getElementById('blendList'), containers);
+  switchHeaderTab('home');
   switchTab('containers');
 }
 
@@ -219,7 +278,7 @@ document.getElementById('createContainerBtn').addEventListener('click', async ()
 
   input.value = '';
   await loadData();
-  renderContainerList(containers, state, document.getElementById('containerList'));
+  renderFilteredContainerList();
 });
 
 document.getElementById('newContainerName').addEventListener('keypress', (e) => {
@@ -396,7 +455,7 @@ document.getElementById('blendList').addEventListener('click', async (e) => {
   }
 });
 
-// Event: Tab clicks
+// Event: Tab clicks (bottom tab bar)
 document.getElementById('tabContainers').addEventListener('click', () => {
   if (selectedContainer) {
     showDetailView(selectedContainer);
@@ -407,6 +466,29 @@ document.getElementById('tabContainers').addEventListener('click', () => {
 
 document.getElementById('tabPending').addEventListener('click', () => {
   switchTab('pending');
+});
+
+// Event: Header tab clicks (top header icons)
+document.getElementById('tabHome').addEventListener('click', () => {
+  switchHeaderTab('home');
+});
+
+document.getElementById('tabSettings').addEventListener('click', () => {
+  switchHeaderTab('settings');
+});
+
+document.getElementById('tabHomeFromSettings').addEventListener('click', () => {
+  switchHeaderTab('home');
+});
+
+document.getElementById('tabSettingsFromSettings').addEventListener('click', () => {
+  switchHeaderTab('settings');
+});
+
+// Event: Search filter input
+document.getElementById('searchFilter').addEventListener('input', (e) => {
+  searchQuery = e.target.value;
+  debouncedFilter();
 });
 
 // Event: Pending list clicks (allow/block/blend/once)

@@ -72,14 +72,29 @@ export function getContainerColor(colorName) {
 
 /**
  * Render a list of containers
+ * @param {Array} containers - List of containers to render
+ * @param {Object} state - Extension state
+ * @param {Element} listElement - DOM element to render into
+ * @param {Function} filterFn - Optional filter function (container, domains, exclusions) => boolean
  */
-export function renderContainerList(containers, state, listElement) {
-  if (containers.length === 0) {
-    listElement.innerHTML = '<div class="empty-state">No containers</div>';
+export function renderContainerList(containers, state, listElement, filterFn = null) {
+  let displayContainers = containers;
+
+  if (filterFn) {
+    displayContainers = containers.filter(container => {
+      const domains = getDomainsForContainer(state, container.cookieStoreId);
+      const exclusions = getExclusionsForContainer(state, container.cookieStoreId);
+      return filterFn(container, domains, exclusions);
+    });
+  }
+
+  if (displayContainers.length === 0) {
+    const message = filterFn ? 'No matching containers' : 'No containers';
+    listElement.innerHTML = `<div class="empty-state">${message}</div>`;
     return;
   }
 
-  listElement.innerHTML = containers.map(container => {
+  listElement.innerHTML = displayContainers.map(container => {
     const domains = getDomainsForContainer(state, container.cookieStoreId);
     const color = getContainerColor(container.color);
     return `
