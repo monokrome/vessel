@@ -97,7 +97,7 @@ export function getEffectiveSubdomainSetting(rule, state) {
   return state.globalSubdomains;
 }
 
-export function isExcludedFromContainer(domain, cookieStoreId, state) {
+export function isBlockedForContainer(domain, cookieStoreId, state) {
   const exclusions = state.containerExclusions[cookieStoreId] || [];
   if (exclusions.length === 0) return false;
 
@@ -144,7 +144,7 @@ export function findMatchingRule(domain, state) {
   for (const [ruledDomain, rule] of Object.entries(state.domainRules)) {
     if (isSubdomainOf(searchDomain, ruledDomain)) {
       // Check if excluded from this container
-      if (isExcludedFromContainer(domain, rule.cookieStoreId, state)) {
+      if (isBlockedForContainer(domain, rule.cookieStoreId, state)) {
         continue;
       }
 
@@ -226,7 +226,7 @@ export function shouldBlockRequest(requestDomain, tabCookieStoreId, tabDomain, s
   const tabRule = findMatchingRule(tabDomain, state);
 
   // Check exclusions first (even for subdomains of tab domain)
-  if (tabRule && isExcludedFromContainer(requestDomain, tabRule.cookieStoreId, state)) {
+  if (tabRule && isBlockedForContainer(requestDomain, tabRule.cookieStoreId, state)) {
     return {
       block: true,
       reason: 'excluded',

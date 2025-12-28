@@ -7,7 +7,7 @@ import {
   isSubdomainOf,
   normalizeDomain,
   getEffectiveSubdomainSetting,
-  isExcludedFromContainer,
+  isBlockedForContainer,
   isBlendedInContainer,
   findMatchingRule,
   findParentRule,
@@ -241,46 +241,46 @@ describe('getEffectiveSubdomainSetting', () => {
   });
 });
 
-describe('isExcludedFromContainer', () => {
-  it('returns true when domain is in exclusion list', () => {
+describe('isBlockedForContainer', () => {
+  it('returns true when domain is in block list', () => {
     const state = {
-      containerExclusions: { 'container-1': ['excluded.example.com'] },
+      containerExclusions: { 'container-1': ['blocked.example.com'] },
     };
-    expect(isExcludedFromContainer('excluded.example.com', 'container-1', state)).toBe(true);
+    expect(isBlockedForContainer('blocked.example.com', 'container-1', state)).toBe(true);
   });
 
-  it('returns false when domain is not in exclusion list', () => {
+  it('returns false when domain is not in block list', () => {
     const state = {
       containerExclusions: { 'container-1': ['other.example.com'] },
     };
-    expect(isExcludedFromContainer('api.example.com', 'container-1', state)).toBe(false);
+    expect(isBlockedForContainer('api.example.com', 'container-1', state)).toBe(false);
   });
 
-  it('returns false when container has no exclusions', () => {
+  it('returns false when container has no blocks', () => {
     const state = { containerExclusions: {} };
-    expect(isExcludedFromContainer('api.example.com', 'container-1', state)).toBe(false);
+    expect(isBlockedForContainer('api.example.com', 'container-1', state)).toBe(false);
   });
 
-  it('returns true for subdomain when parent is excluded', () => {
+  it('returns true for subdomain when parent is blocked', () => {
     const state = {
       containerExclusions: { 'container-1': ['doubleclick.net'] },
     };
-    expect(isExcludedFromContainer('ad.doubleclick.net', 'container-1', state)).toBe(true);
-    expect(isExcludedFromContainer('stats.doubleclick.net', 'container-1', state)).toBe(true);
+    expect(isBlockedForContainer('ad.doubleclick.net', 'container-1', state)).toBe(true);
+    expect(isBlockedForContainer('stats.doubleclick.net', 'container-1', state)).toBe(true);
   });
 
-  it('returns true for deeply nested subdomain when ancestor is excluded', () => {
+  it('returns true for deeply nested subdomain when ancestor is blocked', () => {
     const state = {
       containerExclusions: { 'container-1': ['doubleclick.net'] },
     };
-    expect(isExcludedFromContainer('pixel.ad.doubleclick.net', 'container-1', state)).toBe(true);
+    expect(isBlockedForContainer('pixel.ad.doubleclick.net', 'container-1', state)).toBe(true);
   });
 
-  it('does not match unrelated domains for exclusions', () => {
+  it('does not match unrelated domains for blocks', () => {
     const state = {
       containerExclusions: { 'container-1': ['doubleclick.net'] },
     };
-    expect(isExcludedFromContainer('notdoubleclick.net', 'container-1', state)).toBe(false);
+    expect(isBlockedForContainer('notdoubleclick.net', 'container-1', state)).toBe(false);
   });
 });
 
