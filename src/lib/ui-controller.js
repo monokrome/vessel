@@ -171,7 +171,7 @@ export function createUIController(options = {}) {
   }
 
   const debouncedFilter = debounce(() => {
-    if (headerTab === 'home' && !selectedContainer) {
+    if (activeView === 'containers' && !selectedContainer) {
       renderFilteredContainerList();
     }
   }, 150);
