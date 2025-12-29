@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Vessel",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "license": "MIT",
   "description": "Automatic temporary containers with permanent container rules for specific domains.",
   "author": "monokrome",

@@ -1,6 +1,6 @@
 {
   "name": "vessel",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Automatic temporary containers with permanent container rules for Firefox/LibreWolf",
   "private": true,
   "scripts": {
