@@ -3,10 +3,14 @@
   "version": "0.1.18",
   "description": "Automatic temporary containers with permanent container rules for Firefox/LibreWolf",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "echo 'Load extension manually: about:debugging#/runtime/this-firefox → Load Temporary Add-on → select src/manifest.json' && librewolf about:debugging#/runtime/this-firefox",
     "build": "web-ext build --source-dir src --overwrite-dest",
-    "lint": "web-ext lint --source-dir src",
+    "lint": "pnpm lint:eslint && pnpm lint:webext",
+    "lint:eslint": "eslint src/",
+    "lint:webext": "web-ext lint --source-dir src",
+    "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -17,6 +21,7 @@
   "author": "Bailey \"monokrome\" Stoner <hey@monokro.me>",
   "license": "MIT",
   "devDependencies": {
+    "eslint": "^9.39.2",
     "jsdom": "^27.3.0",
     "vitest": "^4.0.16",
     "web-ext": "^9.2.0"

@@ -24,8 +24,8 @@ import { matchesContainer, debounce } from './fuzzy.js';
  * @returns {Object} Controller instance with public methods
  */
 export function createUIController(options = {}) {
-  const mode = options.mode || 'sidebar';
-  const isPopup = mode === 'popup';
+  // Mode is used by CSS classes on body (.vessel-popup or .vessel-sidebar)
+  const _mode = options.mode || 'sidebar';
 
   // State
   let state = null;
@@ -335,7 +335,10 @@ export function createUIController(options = {}) {
     // Add domain
     el.addDomainBtn.addEventListener('click', async () => {
       const domain = el.newDomain.value.trim().toLowerCase();
-      if (!domain || !selectedContainer) return;
+      if (!domain || !selectedContainer) {
+        console.warn('Add domain failed:', { domain, selectedContainer });
+        return;
+      }
       await browser.runtime.sendMessage({
         type: 'addRule',
         domain,
@@ -390,7 +393,10 @@ export function createUIController(options = {}) {
     // Add exclusion
     el.addExclusionBtn.addEventListener('click', async () => {
       const domain = el.newExclusion.value.trim().toLowerCase();
-      if (!domain || !selectedContainer) return;
+      if (!domain || !selectedContainer) {
+        console.warn('Add exclusion failed:', { domain, selectedContainer });
+        return;
+      }
       await browser.runtime.sendMessage({
         type: 'addExclusion',
         cookieStoreId: selectedContainer.cookieStoreId,

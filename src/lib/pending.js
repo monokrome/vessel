@@ -240,7 +240,7 @@ export function createPendingTracker(options = {}) {
 
     // Check if there's a sibling domain that shares the same parent
     if (parent) {
-      for (const [key, decision] of pendingDomainDecisions) {
+      for (const [_key, decision] of pendingDomainDecisions) {
         if (decision.tabId !== tabId) continue;
 
         // Check if any domain in this decision shares our parent

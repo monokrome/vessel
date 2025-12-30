@@ -4,7 +4,7 @@
 
 import { extractDomain, findMatchingRule, isSubdomainOf } from '../lib/domain.js';
 import { FIREFOX_DEFAULT_CONTAINER, TIMING, IGNORED_SCHEMES, IGNORED_URLS } from '../lib/constants.js';
-import { state, saveState } from './state.js';
+import { state } from './state.js';
 import { createTempContainer } from './containers.js';
 
 // Track tabs we've just created to avoid re-processing them

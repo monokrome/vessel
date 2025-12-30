@@ -180,7 +180,7 @@ export function findParentRule(domain, state) {
   return null;
 }
 
-export function shouldNavigateToContainer(url, tabCookieStoreId, state, tempContainers) {
+export function shouldNavigateToContainer(url, tabCookieStoreId, state, _tempContainers) {
   if (!url || url.startsWith('about:') || url.startsWith('moz-extension:')) {
     return null;
   }
