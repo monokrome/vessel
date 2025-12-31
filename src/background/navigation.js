@@ -108,8 +108,6 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
   tabsBeingMoved.add(tab.id);
 
   try {
-    const windowId = tab.windowId;
-
     const newTab = await browser.tabs.create({
       url: targetUrl,
       cookieStoreId,
@@ -121,22 +119,9 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
     recentlyCreatedTabs.add(newTab.id);
     setTimeout(() => recentlyCreatedTabs.delete(newTab.id), TIMING.recentTabExpiry);
 
-    const originalUrl = tab.url;
+    // Remove old tab - matching Mozilla Multi-Account Containers pattern
+    // (no session history cleanup to avoid interference with bounce tracking detection)
     await browser.tabs.remove(tab.id);
-
-    // Remove the closed tab from session history to prevent Ctrl+Shift+T loops
-    // Verify URL matches to avoid forgetting unrelated tabs due to race conditions
-    try {
-      const recentlyClosed = await browser.sessions.getRecentlyClosed({ maxResults: 1 });
-      if (recentlyClosed.length > 0 && recentlyClosed[0].tab) {
-        const closedTab = recentlyClosed[0].tab;
-        if (closedTab.url === originalUrl || closedTab.url === targetUrl) {
-          await browser.sessions.forgetClosedTab(windowId, closedTab.sessionId);
-        }
-      }
-    } catch {
-      // Ignore errors - forgetClosedTab is best-effort
-    }
   } finally {
     tabsBeingMoved.delete(tab.id);
   }
@@ -144,7 +129,7 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
 
 /**
  * Handle main_frame navigation by switching containers if needed.
- * Called async after webRequest returns {cancel: true}.
+ * Called directly from webRequest handler (matching Mozilla Multi-Account Containers pattern).
  */
 export async function handleMainFrameSwitch(tabId, url, containerInfo) {
   let tab;

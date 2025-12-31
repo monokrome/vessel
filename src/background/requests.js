@@ -23,6 +23,10 @@ export const tempAllowedDomains = new Map();
 // Badge update timeouts for debouncing
 const badgeUpdateTimeouts = new Map();
 
+// Track canceled requests to prevent duplicate tab opens during redirects
+// Matches Mozilla Multi-Account Containers pattern
+const canceledRequests = {};
+
 // Request types that should never be paused
 const PASSTHROUGH_REQUEST_TYPES = new Set([
   'beacon',
@@ -100,7 +104,9 @@ function isThirdParty(requestDomain, tabDomain) {
 }
 
 function handleMainFrameRequest(details) {
-  if (recentlyCreatedTabs.has(details.tabId) || tabsBeingMoved.has(details.tabId)) {
+  const tabId = details.tabId;
+
+  if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
     return {};
   }
 
@@ -110,14 +116,40 @@ function handleMainFrameRequest(details) {
 
   const containerInfo = getContainerForUrl(details.url, details.cookieStoreId);
 
-  if (containerInfo) {
-    setTimeout(() => {
-      handleMainFrameSwitch(details.tabId, details.url, containerInfo);
-    }, 0);
-    return { cancel: true };
+  if (!containerInfo) {
+    return {};
   }
 
-  return {};
+  // Track canceled requests to prevent duplicate tab opens during redirects
+  // This matches Mozilla Multi-Account Containers pattern
+  if (!canceledRequests[tabId]) {
+    canceledRequests[tabId] = {
+      requestIds: { [details.requestId]: true },
+      urls: { [details.url]: true }
+    };
+
+    // Clean up after 2 seconds
+    setTimeout(() => {
+      if (canceledRequests[tabId]) {
+        delete canceledRequests[tabId];
+      }
+    }, 2000);
+  } else {
+    // Check if this is a duplicate request (e.g., from a redirect)
+    if (canceledRequests[tabId].requestIds[details.requestId] ||
+        canceledRequests[tabId].urls[details.url]) {
+      // Already handling this request, just cancel
+      return { cancel: true };
+    }
+    canceledRequests[tabId].requestIds[details.requestId] = true;
+    canceledRequests[tabId].urls[details.url] = true;
+  }
+
+  // Handle container switch directly (not via setTimeout)
+  // This matches Mozilla Multi-Account Containers pattern
+  handleMainFrameSwitch(tabId, details.url, containerInfo);
+
+  return { cancel: true };
 }
 
 function handleSubRequest(details, pendingTracker) {
