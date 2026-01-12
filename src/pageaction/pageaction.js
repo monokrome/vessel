@@ -1,3 +1,5 @@
+import { logger } from '../lib/logger.js';
+import { setSafeHTML } from '../lib/safe-html.js';
 import { escapeHtml, escapeAttr, getContainerColor } from '../lib/ui-shared.js';
 import { DEFAULT_CONTAINER } from '../lib/constants.js';
 import { findMatchingRule, getParentDomain } from '../lib/domain.js';
@@ -74,7 +76,7 @@ async function init() {
     const url = new URL(currentTab.url);
     currentDomain = url.hostname;
   } catch (error) {
-    console.warn('Failed to parse URL:', error);
+    logger.warn('Failed to parse URL:', error);
     document.getElementById('domain').textContent = 'Invalid URL';
     return;
   }
@@ -126,7 +128,7 @@ function renderPendingList() {
   const containerName = existingRule?.containerName || 'this container';
 
   section.style.display = 'block';
-  list.innerHTML = pendingRequests.map(req => {
+  setSafeHTML(list, pendingRequests.map(req => {
     const domainRule = findMatchingRule(req.domain, state);
     const isCrossContainer = domainRule && domainRule.cookieStoreId !== currentTab.cookieStoreId;
     const selectedLevel = selectedDomainLevels.get(req.domain) || req.domain;
@@ -147,21 +149,21 @@ function renderPendingList() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join(''));
 }
 
 function renderContainerList() {
   const list = document.getElementById('containerList');
 
   if (containers.length === 0) {
-    list.innerHTML = '<div class="empty-state">No containers yet</div>';
+    setSafeHTML(list, '<div class="empty-state">No containers yet</div>');
     return;
   }
 
   const existingRule = state.domainRules[currentDomain];
   const currentContainerId = existingRule?.cookieStoreId;
 
-  list.innerHTML = containers.map(container => {
+  setSafeHTML(list, containers.map(container => {
     const color = getContainerColor(container.color);
     const isActive = container.cookieStoreId === currentContainerId;
     return `
@@ -171,7 +173,7 @@ function renderContainerList() {
         ${isActive ? '<span class="checkmark">✓</span>' : ''}
       </div>
     `;
-  }).join('');
+  }).join(''));
 }
 
 // Event: Click container to assign domain
@@ -264,21 +266,38 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
 
   const existingRule = state.domainRules[currentDomain];
 
+  // Get container name - first from existing rule, then by looking up current container
+  let containerName = existingRule?.containerName;
+  if (!containerName) {
+    // Only use current container if it's not a temp container
+    const isInTempContainer = state.tempContainers.includes(currentTab.cookieStoreId);
+    if (!isInTempContainer) {
+      const currentContainer = containers.find(c => c.cookieStoreId === currentTab.cookieStoreId);
+      containerName = currentContainer?.name;
+    }
+  }
+
   if (action === 'allow') {
+    if (!containerName) {
+      // Show error or container picker - for now, just allow once
+      window.alert('No container selected. Please navigate to a page with a container rule, or create a rule first.');
+      return;
+    }
+
     await browser.runtime.sendMessage({
       type: 'allowDomain',
       tabId: currentTab.id,
       domain: selectedLevel,
       addRule: true,
-      containerName: existingRule?.containerName,
-      // Enable subdomains if user selected a parent domain
+      containerName: containerName,
       enableSubdomains: isParentSelected
     });
   } else if (action === 'blend') {
-    const ruleDomain = btn.dataset.ruleDomain || domain;
+    // Use selected level (e.g., "nflxso.net" if user selected it from "a.nflxso.net")
+    const blendDomain = selectedLevel;
 
     if (state.hideBlendWarning) {
-      await performBlend(domain, ruleDomain);
+      await performBlend(domain, blendDomain);
       state = await browser.runtime.sendMessage({ type: 'getState' });
       await loadPendingRequests();
       return;
@@ -290,8 +309,8 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     const targetContainerName = currentContainerRule?.containerName || 'this container';
 
     pendingBlendDomain = domain;
-    pendingBlendRuleDomain = ruleDomain;
-    document.getElementById('confirmDomain').textContent = ruleDomain;
+    pendingBlendRuleDomain = blendDomain;
+    document.getElementById('confirmDomain').textContent = blendDomain;
     document.getElementById('confirmMessage').textContent =
       `This domain belongs to the ${sourceContainerName} container. Blending into ${targetContainerName} allows cross-container requests from ${sourceContainerName} to ${targetContainerName} which could be used to track or otherwise undermine your privacy. Only do this if it is absolutely necessary.`;
     document.getElementById('confirmDontShowAgain').checked = false;

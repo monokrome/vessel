@@ -180,35 +180,6 @@ export function findParentRule(domain, state) {
   return null;
 }
 
-export function shouldNavigateToContainer(url, tabCookieStoreId, state, _tempContainers) {
-  if (!url || url.startsWith('about:') || url.startsWith('moz-extension:')) {
-    return null;
-  }
-
-  const domain = extractDomain(url);
-  if (!domain) return null;
-
-  const rule = findMatchingRule(domain, state);
-
-  // Has a matching rule
-  if (rule) {
-    if (rule.shouldAsk) {
-      return { action: 'ask', rule, domain };
-    }
-    if (tabCookieStoreId !== rule.cookieStoreId) {
-      return { action: 'reopen', cookieStoreId: rule.cookieStoreId };
-    }
-    return null;
-  }
-
-  // No rules match - use temp container if in default
-  if (tabCookieStoreId === 'firefox-default') {
-    return { action: 'temp' };
-  }
-
-  return null;
-}
-
 /**
  * Check if a sub-request (fetch, XHR, image, etc.) should be blocked.
  * Returns { block: true, reason: string } or { block: false }

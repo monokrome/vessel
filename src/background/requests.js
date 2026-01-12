@@ -2,6 +2,7 @@
  * Web request handling for Vessel
  */
 
+import { logger } from '../lib/logger.js';
 import { extractDomain, shouldBlockRequest } from '../lib/domain.js';
 import { createPendingTracker } from '../lib/pending.js';
 import { TIMING, BADGE_COLORS, IGNORED_SCHEMES } from '../lib/constants.js';
@@ -19,6 +20,97 @@ export const tabInfoCache = new Map();
 
 // Temporary domain allowances: domain → { cookieStoreId, tabId }
 export const tempAllowedDomains = new Map();
+
+// Temporary container blends for OAuth flows
+// Map: originCookieStoreId → Map<domain, targetCookieStoreId>
+// Cleaned up 3 minutes after BOTH origin and target containers have no tabs
+export const tempContainerBlends = new Map();
+
+// Time (ms) to wait after both containers are empty before cleaning up blend
+const BLEND_CLEANUP_DELAY = 3 * 60 * 1000; // 3 minutes
+
+// Pending cleanup timers: blendKey → timerId
+const blendCleanupTimers = new Map();
+
+/**
+ * Add a temporary blend - allows a domain from another container to work in the origin container
+ * @param {string} originCookieStoreId - Container where the blend is active
+ * @param {string} domain - Domain being blended in
+ * @param {string} targetCookieStoreId - Container the domain normally belongs to
+ */
+export function addTempBlend(originCookieStoreId, domain, targetCookieStoreId) {
+  if (!tempContainerBlends.has(originCookieStoreId)) {
+    tempContainerBlends.set(originCookieStoreId, new Map());
+  }
+  tempContainerBlends.get(originCookieStoreId).set(domain, targetCookieStoreId);
+
+  // Cancel any pending cleanup for this blend
+  const blendKey = `${originCookieStoreId}:${domain}`;
+  if (blendCleanupTimers.has(blendKey)) {
+    clearTimeout(blendCleanupTimers.get(blendKey));
+    blendCleanupTimers.delete(blendKey);
+  }
+}
+
+/**
+ * Check if a domain is temporarily blended into a container
+ * @param {string} domain - Domain to check
+ * @param {string} cookieStoreId - Container to check in
+ * @returns {boolean}
+ */
+export function isTempBlended(domain, cookieStoreId) {
+  const blends = tempContainerBlends.get(cookieStoreId);
+  if (!blends) return false;
+
+  // Direct match
+  if (blends.has(domain)) return true;
+
+  // Check if domain is a subdomain of a blended domain
+  for (const blendedDomain of blends.keys()) {
+    if (domain.endsWith('.' + blendedDomain)) return true;
+  }
+  return false;
+}
+
+/**
+ * Schedule cleanup check for temp blends when a tab is removed
+ */
+async function scheduleBlendCleanup() {
+  // Get all tabs to check which containers still have tabs
+  const tabs = await browser.tabs.query({});
+  const activeContainers = new Set(tabs.map(t => t.cookieStoreId));
+
+  // Check each origin container's blends
+  for (const [originCookieStoreId, blends] of tempContainerBlends) {
+    for (const [domain, targetCookieStoreId] of blends) {
+      const blendKey = `${originCookieStoreId}:${domain}`;
+
+      // If either container still has tabs, cancel any pending cleanup
+      if (activeContainers.has(originCookieStoreId) || activeContainers.has(targetCookieStoreId)) {
+        if (blendCleanupTimers.has(blendKey)) {
+          clearTimeout(blendCleanupTimers.get(blendKey));
+          blendCleanupTimers.delete(blendKey);
+        }
+        continue;
+      }
+
+      // Both containers are empty - schedule cleanup if not already scheduled
+      if (!blendCleanupTimers.has(blendKey)) {
+        const timerId = setTimeout(() => {
+          blendCleanupTimers.delete(blendKey);
+          const containerBlends = tempContainerBlends.get(originCookieStoreId);
+          if (containerBlends) {
+            containerBlends.delete(domain);
+            if (containerBlends.size === 0) {
+              tempContainerBlends.delete(originCookieStoreId);
+            }
+          }
+        }, BLEND_CLEANUP_DELAY);
+        blendCleanupTimers.set(blendKey, timerId);
+      }
+    }
+  }
+}
 
 // Badge update timeouts for debouncing
 const badgeUpdateTimeouts = new Map();
@@ -68,16 +160,23 @@ function updateBrowserActionBadge(pendingTracker) {
   const totalPending = pendingTracker.getTotalPendingCount();
 
   if (totalPending > 0) {
-    browser.browserAction.setBadgeText({ text: String(totalPending) });
-    browser.browserAction.setBadgeBackgroundColor({ color: BADGE_COLORS.pending });
+    browser.action.setBadgeText({ text: String(totalPending) });
+    browser.action.setBadgeBackgroundColor({ color: BADGE_COLORS.pending });
   } else {
-    browser.browserAction.setBadgeText({ text: '' });
+    browser.action.setBadgeText({ text: '' });
   }
 }
 
 async function updateTabCache(tabId, pendingTracker, isRealNavigation = false) {
   try {
     const tab = await browser.tabs.get(tabId);
+
+    // Don't cache extension pages - we trust other addons
+    if (tab.url && IGNORED_SCHEMES.some(scheme => tab.url.startsWith(scheme))) {
+      tabInfoCache.delete(tabId);
+      return;
+    }
+
     const domain = tab.url ? extractDomain(tab.url) : null;
     const oldInfo = tabInfoCache.get(tabId);
 
@@ -138,7 +237,6 @@ function handleMainFrameRequest(details) {
     // Check if this is a duplicate request (e.g., from a redirect)
     if (canceledRequests[tabId].requestIds[details.requestId] ||
         canceledRequests[tabId].urls[details.url]) {
-      // Already handling this request, just cancel
       return { cancel: true };
     }
     canceledRequests[tabId].requestIds[details.requestId] = true;
@@ -163,6 +261,14 @@ function handleSubRequest(details, pendingTracker) {
     return {};
   }
 
+  // Trust requests originating from other extensions
+  if (details.originUrl && IGNORED_SCHEMES.some(scheme => details.originUrl.startsWith(scheme))) {
+    return {};
+  }
+  if (details.documentUrl && IGNORED_SCHEMES.some(scheme => details.documentUrl.startsWith(scheme))) {
+    return {};
+  }
+
   const requestDomain = extractDomain(details.url);
   if (!requestDomain) return {};
 
@@ -173,9 +279,23 @@ function handleSubRequest(details, pendingTracker) {
     return {};
   }
 
+  // Check temp allowed domains - exact match or subdomain match
   const tempAllow = tempAllowedDomains.get(requestDomain);
   if (tempAllow && tempAllow.cookieStoreId === tabInfo.cookieStoreId) {
+    logger.debug('Allowing', requestDomain, '- exact match in tempAllowedDomains');
     return {};
+  }
+  // Check if request domain is a subdomain of an allowed domain
+  for (const [allowedDomain, allowInfo] of tempAllowedDomains) {
+    if (allowInfo.cookieStoreId === tabInfo.cookieStoreId &&
+        requestDomain.endsWith('.' + allowedDomain)) {
+      logger.debug('Allowing', requestDomain, '- subdomain of', allowedDomain);
+      return {};
+    }
+  }
+  // Log if we didn't find a match but have entries
+  if (tempAllowedDomains.size > 0) {
+    logger.debug('tempAllowedDomains check failed for', requestDomain, 'in', tabInfo.cookieStoreId, '- entries:', Array.from(tempAllowedDomains.entries()).map(([d, i]) => `${d}:${i.cookieStoreId}`));
   }
 
   const blockResult = shouldBlockRequest(
@@ -202,13 +322,8 @@ function pauseRequest(details, requestDomain, blockResult, pendingTracker, start
   const syncTime = performance.now() - startTime;
 
   if (syncTime > 5) {
-    console.warn(`[Vessel] Slow sync handler: ${syncTime.toFixed(1)}ms for ${requestDomain}`);
+    logger.warn(`Slow sync handler: ${syncTime.toFixed(1)}ms for ${requestDomain}`);
   }
-
-  const pauseReason = blockResult.reason === 'cross-container'
-    ? `cross-container (belongs to ${blockResult.targetContainer})`
-    : 'unknown third-party';
-  console.log(`[Vessel] Pausing ${details.type} request to ${requestDomain} - ${pauseReason} (tab ${tabId}, sync: ${syncTime.toFixed(1)}ms)`);
 
   return new Promise((resolve) => {
     queueMicrotask(() => {
@@ -216,7 +331,7 @@ function pauseRequest(details, requestDomain, blockResult, pendingTracker, start
       pendingTracker.addPendingDecision(tabId, requestDomain, resolve);
       const trackerTime = performance.now() - trackerStart;
       if (trackerTime > 5) {
-        console.warn(`[Vessel] Slow addPendingDecision: ${trackerTime.toFixed(1)}ms for ${requestDomain}`);
+        logger.warn(`Slow addPendingDecision: ${trackerTime.toFixed(1)}ms for ${requestDomain}`);
       }
     });
   });
@@ -231,7 +346,7 @@ function createDebouncedBadgeUpdate(getTracker) {
     badgeUpdateTimeouts.set(key, setTimeout(() => {
       badgeUpdateTimeouts.delete(key);
       updatePageActionBadge(tabId, getTracker());
-    }, 50));
+    }, 2000));
   };
 }
 
@@ -253,6 +368,9 @@ function setupTabListeners(pendingTracker) {
 
   browser.tabs.onRemoved.addListener((tabId) => {
     tabInfoCache.delete(tabId);
+    delete canceledRequests[tabId];
+    recentlyCreatedTabs.delete(tabId);
+    tabsBeingMoved.delete(tabId);
     pendingTracker.clearPendingDomainsForTab(tabId);
 
     for (const [domain, info] of tempAllowedDomains) {
@@ -262,6 +380,9 @@ function setupTabListeners(pendingTracker) {
     }
 
     setTimeout(cleanupEmptyTempContainers, TIMING.cleanupDebounce);
+
+    // Check if any temp blends should be cleaned up
+    scheduleBlendCleanup();
   });
 
   browser.contextualIdentities.onRemoved.addListener(async (changeInfo) => {

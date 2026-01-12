@@ -198,18 +198,16 @@
 
     .domain-part {
       cursor: pointer;
-      padding: 1px 2px;
-      border-radius: 2px;
-      transition: background 0.1s, color 0.1s;
+      transition: border-color 0.1s;
+      border-bottom: 1px dotted transparent;
     }
 
     .domain-part:hover {
-      background: var(--bg-hover);
+      border-bottom-color: var(--text-secondary);
     }
 
     .domain-part.selected {
-      background: var(--link-color);
-      color: var(--bg-primary);
+      border-bottom-color: var(--link-color);
     }
 
     .domain-part-fixed {

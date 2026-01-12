@@ -6,6 +6,7 @@ import { extractDomain, findMatchingRule, isSubdomainOf } from '../lib/domain.js
 import { FIREFOX_DEFAULT_CONTAINER, TIMING, IGNORED_SCHEMES, IGNORED_URLS } from '../lib/constants.js';
 import { state } from './state.js';
 import { createTempContainer } from './containers.js';
+import { isTempBlended } from './requests.js';
 
 // Track tabs we've just created to avoid re-processing them
 export const recentlyCreatedTabs = new Set();
@@ -27,6 +28,26 @@ export function isIgnoredUrl(url) {
 }
 
 /**
+ * Check if a domain is blended into a container (permanent or temporary)
+ */
+function isDomainBlended(domain, cookieStoreId) {
+  // Check temporary blends (for OAuth flows)
+  if (isTempBlended(domain, cookieStoreId)) {
+    return true;
+  }
+
+  // Check permanent blends
+  const permanentBlends = state.containerBlends[cookieStoreId] || [];
+  for (const blendedDomain of permanentBlends) {
+    if (domain === blendedDomain || domain.endsWith('.' + blendedDomain)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Synchronously determine if a URL should open in a different container.
  * Returns { targetCookieStoreId, shouldAsk, askInfo } or null if no switch needed.
  */
@@ -35,6 +56,11 @@ export function getContainerForUrl(url, currentCookieStoreId) {
 
   const domain = extractDomain(url);
   if (!domain) return null;
+
+  // Check if domain is blended into current container - if so, don't switch
+  if (isDomainBlended(domain, currentCookieStoreId)) {
+    return null;
+  }
 
   const isInPermanentContainer = currentCookieStoreId !== FIREFOX_DEFAULT_CONTAINER &&
     !state.tempContainers.includes(currentCookieStoreId);
@@ -100,28 +126,36 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
 
   // Use provided URL or fall back to tab.url
   const targetUrl = url || tab.url;
-  if (isIgnoredUrl(targetUrl)) {
-    return;
-  }
+  if (isIgnoredUrl(targetUrl)) return;
 
   // Mark tab as being moved to prevent race conditions
   tabsBeingMoved.add(tab.id);
 
+  // For pinned tabs, never close them - just open a new unpinned tab
+  const keepOriginalTab = tab.pinned;
+
   try {
+    // Create tab without URL first, then navigate
+    // This allows Firefox's HTTPS-Only mode to upgrade the URL if enabled
     const newTab = await browser.tabs.create({
-      url: targetUrl,
       cookieStoreId,
+      windowId: tab.windowId,
       index: tab.index + 1,
-      active: tab.active
+      active: true,
+      pinned: false
     });
 
     // Mark new tab so we don't re-process it
     recentlyCreatedTabs.add(newTab.id);
     setTimeout(() => recentlyCreatedTabs.delete(newTab.id), TIMING.recentTabExpiry);
 
-    // Remove old tab - matching Mozilla Multi-Account Containers pattern
-    // (no session history cleanup to avoid interference with bounce tracking detection)
-    await browser.tabs.remove(tab.id);
+    // Navigate after creation so Firefox's HTTPS-Only mode applies
+    await browser.tabs.update(newTab.id, { url: targetUrl });
+
+    // Only remove the old tab if it's not pinned
+    if (!keepOriginalTab) {
+      await browser.tabs.remove(tab.id);
+    }
   } finally {
     tabsBeingMoved.delete(tab.id);
   }
@@ -136,10 +170,22 @@ export async function handleMainFrameSwitch(tabId, url, containerInfo) {
   try {
     tab = await browser.tabs.get(tabId);
   } catch {
-    return; // Tab closed
+    return; // Tab already closed
   }
 
   if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
+    return;
+  }
+
+  // Safety check: only modify tabs that are blank/new or are navigating to the target URL
+  // This prevents accidentally modifying the wrong tab (e.g., the opener tab on CTRL+click)
+  const tabUrl = tab.url || '';
+  const isBlankTab = NEW_TAB_PAGES.has(tabUrl) || tabUrl === '' || tabUrl === 'about:blank';
+  const isNavigatingToTarget = tabUrl === url;
+
+  // If the tab already has different content, don't modify it
+  // This is a safety check for race conditions with CTRL+click
+  if (!isBlankTab && !isNavigatingToTarget) {
     return;
   }
 

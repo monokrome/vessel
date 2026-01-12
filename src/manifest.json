@@ -1,5 +1,5 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Vessel",
   "version": "0.1.18",
   "license": "MIT",
@@ -16,7 +16,10 @@
     "tabs",
     "webNavigation",
     "webRequest",
-    "webRequestBlocking",
+    "webRequestBlocking"
+  ],
+
+  "host_permissions": [
     "<all_urls>"
   ],
 
@@ -34,7 +37,7 @@
     "96": "icons/vessel.svg"
   },
 
-  "browser_action": {
+  "action": {
     "default_icon": "icons/vessel.svg",
     "default_title": "Vessel - Container Manager",
     "default_popup": "popup/popup.html"
@@ -63,12 +66,13 @@
 
   "background": {
     "scripts": ["background/index.js"],
-    "type": "module",
-    "persistent": true
+    "type": "module"
   },
 
   "web_accessible_resources": [
-    "ask/ask.html",
-    "ask/ask.js"
+    {
+      "resources": ["ask/ask.html", "ask/ask.js"],
+      "matches": ["<all_urls>"]
+    }
   ]
 }

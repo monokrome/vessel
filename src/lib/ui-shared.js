@@ -3,6 +3,7 @@
  * Used by both sidebar and popup
  */
 
+import { setSafeHTML } from './safe-html.js';
 import { CONTAINER_COLORS } from './constants.js';
 import { STRINGS } from './strings.js';
 
@@ -90,11 +91,11 @@ export function renderContainerList(containers, state, listElement, filterFn = n
 
   if (displayContainers.length === 0) {
     const message = filterFn ? 'No matching containers' : 'No containers';
-    listElement.innerHTML = `<div class="empty-state">${message}</div>`;
+    setSafeHTML(listElement, `<div class="empty-state">${message}</div>`);
     return;
   }
 
-  listElement.innerHTML = displayContainers.map(container => {
+  setSafeHTML(listElement, displayContainers.map(container => {
     const domains = getDomainsForContainer(state, container.cookieStoreId);
     const color = getContainerColor(container.color);
     return `
@@ -104,7 +105,7 @@ export function renderContainerList(containers, state, listElement, filterFn = n
         <span class="container-count">${domains.length}</span>
       </div>
     `;
-  }).join('');
+  }).join(''));
 }
 
 /**
@@ -114,11 +115,11 @@ export function renderDomainList(state, cookieStoreId, listElement) {
   const domains = getDomainsForContainer(state, cookieStoreId);
 
   if (domains.length === 0) {
-    listElement.innerHTML = '<div class="empty-state">No domains</div>';
+    setSafeHTML(listElement, '<div class="empty-state">No domains</div>');
     return;
   }
 
-  listElement.innerHTML = domains.map(({ domain, subdomains }) => `
+  setSafeHTML(listElement, domains.map(({ domain, subdomains }) => `
     <div class="domain-item">
       <span class="domain-name">${escapeHtml(domain)}</span>
       <div class="toggle-4 domain-subdomains-toggle" data-domain="${escapeAttr(domain)}">
@@ -129,7 +130,7 @@ export function renderDomainList(state, cookieStoreId, listElement) {
       </div>
       <button class="remove-btn" data-domain="${escapeAttr(domain)}">×</button>
     </div>
-  `).join('');
+  `).join(''));
 }
 
 /**
@@ -139,16 +140,16 @@ export function renderExclusionList(state, cookieStoreId, listElement) {
   const exclusions = getExclusionsForContainer(state, cookieStoreId);
 
   if (exclusions.length === 0) {
-    listElement.innerHTML = '<div class="empty-state">No exclusions</div>';
+    setSafeHTML(listElement, '<div class="empty-state">No exclusions</div>');
     return;
   }
 
-  listElement.innerHTML = exclusions.map(domain => `
+  setSafeHTML(listElement, exclusions.map(domain => `
     <div class="exclusion-item">
       <span class="exclusion-name">${escapeHtml(domain)}</span>
       <button class="remove-btn remove-exclusion-btn" data-domain="${escapeAttr(domain)}">×</button>
     </div>
-  `).join('');
+  `).join(''));
 }
 
 /**
@@ -176,11 +177,11 @@ export function renderBlendList(state, cookieStoreId, listElement, containers) {
   const blends = getBlendsForContainer(state, cookieStoreId);
 
   if (blends.length === 0) {
-    listElement.innerHTML = `<div class="empty-state">${STRINGS.emptyBlends}</div>`;
+    setSafeHTML(listElement, `<div class="empty-state">${STRINGS.emptyBlends}</div>`);
     return;
   }
 
-  listElement.innerHTML = blends.map(domain => {
+  setSafeHTML(listElement, blends.map(domain => {
     const ownerName = findDomainOwner(domain, state, containers);
     const sourceInfo = ownerName ? `from ${escapeHtml(ownerName)}` : '';
     return `
@@ -190,7 +191,7 @@ export function renderBlendList(state, cookieStoreId, listElement, containers) {
       <button class="remove-btn remove-blend-btn" data-domain="${escapeAttr(domain)}">×</button>
     </div>
   `;
-  }).join('');
+  }).join(''));
 }
 
 /**

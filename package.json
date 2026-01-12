@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'Load extension manually: about:debugging#/runtime/this-firefox → Load Temporary Add-on → select src/manifest.json' && librewolf about:debugging#/runtime/this-firefox",
+    "dev": "web-ext run --source-dir src --firefox=librewolf --firefox-profile=$PWD/.extdev --profile-create-if-missing --keep-profile-changes --pre-install --browser-console --pref=xpinstall.signatures.required=false --pref=extensions.experiments.enabled=true --pref=devtools.debugger.remote-enabled=true --pref=devtools.chrome.enabled=true",
     "build": "web-ext build --source-dir src --overwrite-dest",
     "lint": "pnpm lint:eslint && pnpm lint:webext",
     "lint:eslint": "eslint src/",

@@ -3,19 +3,11 @@
  * Used by both sidebar and popup
  */
 
-import {
-  escapeHtml,
-  parseValue,
-  updateToggle,
-  renderContainerList,
-  renderDomainList,
-  renderExclusionList,
-  renderBlendList,
-  createRenameInput
-} from './ui-shared.js';
+import { logger } from './logger.js';
 import { TIMING } from './constants.js';
-import { findMatchingRule } from './domain.js';
 import { matchesContainer, debounce } from './fuzzy.js';
+import { createViewManager } from './ui-controller-views.js';
+import { createEventSetup } from './ui-controller-events.js';
 
 /**
  * Create and initialize the UI controller
@@ -79,86 +71,25 @@ export function createUIController(options = {}) {
         tabId: currentTabId
       });
     } catch (error) {
-      console.warn('Failed to load pending requests:', error);
+      logger.warn('Failed to load pending requests:', error);
       return [];
     }
   }
 
-  function renderPendingRequests(pending) {
-    const list = el.pendingList;
-    const badge = el.pendingBadge;
+  // Create view manager
+  const views = {
+    get listView() { return el.listView; },
+    get detailView() { return el.detailView; },
+    get settingsView() { return el.settingsView; },
+    get pendingView() { return el.pendingView; },
+  };
 
-    if (!pending || pending.length === 0) {
-      badge.style.display = 'none';
-      list.innerHTML = '<div class="pending-empty">No pending requests for this tab</div>';
-      return;
-    }
-
-    badge.style.display = 'inline';
-    badge.textContent = pending.length;
-
-    list.innerHTML = pending.map(({ domain, count }) => {
-      const domainRule = findMatchingRule(domain, state);
-      const isCrossContainer = domainRule && currentTabCookieStoreId &&
-        domainRule.cookieStoreId !== currentTabCookieStoreId;
-
-      return `
-        <div class="pending-item" data-domain="${escapeHtml(domain)}">
-          <span class="pending-domain" title="${escapeHtml(domain)}">${escapeHtml(domain)}</span>
-          <span class="pending-count">${count} req${count > 1 ? 's' : ''}</span>
-          <div class="pending-actions">
-            ${isCrossContainer
-              ? `<button class="blend-btn" data-domain="${escapeHtml(domain)}" data-rule-domain="${escapeHtml(domainRule.domain)}" title="Blend ${escapeHtml(domainRule.domain)} into this container (from ${escapeHtml(domainRule.containerName)})">Blend</button>`
-              : `<button class="allow-btn" data-domain="${escapeHtml(domain)}">Allow</button>`
-            }
-            <button class="once-btn" data-domain="${escapeHtml(domain)}">Once</button>
-            <button class="block-btn" data-domain="${escapeHtml(domain)}">Block</button>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  function switchView(view) {
-    activeView = view;
-
-    // Update tab buttons
-    if (el.tabContainers) el.tabContainers.classList.toggle('active', view === 'containers');
-    if (el.tabSettings) el.tabSettings.classList.toggle('active', view === 'settings');
-    if (el.tabPending) el.tabPending.classList.toggle('active', view === 'pending');
-
-    // Hide all main views
-    el.listView.style.display = 'none';
-    el.detailView.style.display = 'none';
-    el.settingsView.style.display = 'none';
-    el.pendingView.style.display = 'none';
-
-    // Show the appropriate view
-    if (view === 'containers') {
-      if (selectedContainer) {
-        el.detailView.style.display = 'block';
-      } else {
-        el.listView.style.display = 'block';
-      }
-    } else if (view === 'settings') {
-      el.settingsView.style.display = 'block';
-    } else if (view === 'pending') {
-      el.pendingView.style.display = 'block';
-    }
-  }
-
-  async function refreshPending() {
-    const pending = await loadPendingRequests();
-    renderPendingRequests(pending);
-  }
-
-  function startPendingRefresh() {
-    if (pendingRefreshInterval) {
-      clearInterval(pendingRefreshInterval);
-    }
-    refreshPending();
-    pendingRefreshInterval = setInterval(refreshPending, TIMING.pendingRefreshInterval);
-  }
+  const viewManager = createViewManager(
+    el,
+    () => state,
+    () => containers,
+    () => currentTabCookieStoreId
+  );
 
   function createFilterFn() {
     if (!searchQuery) return null;
@@ -167,7 +98,7 @@ export function createUIController(options = {}) {
   }
 
   function renderFilteredContainerList() {
-    renderContainerList(containers, state, el.containerList, createFilterFn());
+    viewManager.renderFilteredContainerList(containers, state, createFilterFn());
   }
 
   const debouncedFilter = debounce(() => {
@@ -176,32 +107,32 @@ export function createUIController(options = {}) {
     }
   }, 150);
 
-  function updateSettingsToggles() {
-    updateToggle(el.globalSubdomainsToggle, state.globalSubdomains);
-    updateToggle(el.stripWwwToggle, state.stripWww);
-    if (el.blendWarningsToggle) {
-      updateToggle(el.blendWarningsToggle, !state.hideBlendWarning);
-    }
-  }
-
   function showListView() {
     selectedContainer = null;
     renderFilteredContainerList();
-    updateSettingsToggles();
-    switchView('containers');
+    viewManager.updateSettingsToggles(state);
+    viewManager.switchView('containers', null, views);
+    activeView = 'containers';
   }
 
   function showDetailView(container) {
     selectedContainer = container;
-    el.detailTitle.textContent = container.name;
+    viewManager.showDetailView(container, state, containers);
+    viewManager.switchView('containers', container, views);
+    activeView = 'containers';
+  }
 
-    const containerSetting = state.containerSubdomains[container.cookieStoreId] ?? null;
-    updateToggle(el.containerSubdomainsToggle, containerSetting);
+  async function refreshPending() {
+    const pending = await loadPendingRequests();
+    viewManager.renderPendingRequests(pending, state);
+  }
 
-    renderDomainList(state, container.cookieStoreId, el.domainList);
-    renderExclusionList(state, container.cookieStoreId, el.exclusionList);
-    renderBlendList(state, container.cookieStoreId, el.blendList, containers);
-    switchView('containers');
+  function startPendingRefresh() {
+    if (pendingRefreshInterval) {
+      clearInterval(pendingRefreshInterval);
+    }
+    refreshPending();
+    pendingRefreshInterval = setInterval(refreshPending, TIMING.pendingRefreshInterval);
   }
 
   async function confirmAddBlend() {
@@ -216,7 +147,7 @@ export function createUIController(options = {}) {
     el.newBlend.value = '';
     pendingBlendDomain = null;
     await loadData();
-    renderBlendList(state, selectedContainer.cookieStoreId, el.blendList, containers);
+    viewManager.showDetailView(selectedContainer, state, containers);
   }
 
   async function confirmPendingBlend() {
@@ -241,102 +172,65 @@ export function createUIController(options = {}) {
     await refreshPending();
   }
 
-  function setupEventListeners() {
-    // Container list clicks
-    el.containerList.addEventListener('click', (e) => {
-      const item = e.target.closest('.container-item');
-      if (!item) return;
-      const id = item.dataset.id;
+  // Event callbacks
+  const callbacks = {
+    onContainerClick: (id) => {
       const container = containers.find(c => c.cookieStoreId === id);
       if (container) showDetailView(container);
-    });
+    },
 
-    // Back button
-    el.backBtn.addEventListener('click', showListView);
+    onBackClick: showListView,
 
-    // Container name rename
-    el.detailTitle.addEventListener('click', () => {
+    onRenameContainer: async (newName) => {
       if (!selectedContainer) return;
-      createRenameInput(
-        el.detailTitle,
-        selectedContainer.name,
-        async (newName) => {
-          await browser.contextualIdentities.update(selectedContainer.cookieStoreId, { name: newName });
-          await loadData();
-          selectedContainer = containers.find(c => c.cookieStoreId === selectedContainer.cookieStoreId);
-          el.detailTitle.textContent = selectedContainer ? selectedContainer.name : '';
-        },
-        () => {
-          el.detailTitle.textContent = selectedContainer.name;
-        }
-      );
-    });
+      await browser.contextualIdentities.update(selectedContainer.cookieStoreId, { name: newName });
+      await loadData();
+      selectedContainer = containers.find(c => c.cookieStoreId === selectedContainer.cookieStoreId);
+      el.detailTitle.textContent = selectedContainer ? selectedContainer.name : '';
+    },
 
-    // Global subdomains toggle
-    el.globalSubdomainsToggle.addEventListener('click', async (e) => {
-      if (e.target.tagName !== 'BUTTON') return;
-      const value = parseValue(e.target.dataset.value);
+    onGlobalSubdomainsToggle: async (value) => {
       await browser.runtime.sendMessage({ type: 'setGlobalSubdomains', value });
       await loadData();
-      updateToggle(el.globalSubdomainsToggle, value);
-    });
+      viewManager.updateSettingsToggles(state);
+    },
 
-    // Strip www toggle
-    el.stripWwwToggle.addEventListener('click', async (e) => {
-      if (e.target.tagName !== 'BUTTON') return;
-      const value = parseValue(e.target.dataset.value);
+    onStripWwwToggle: async (value) => {
       await browser.runtime.sendMessage({ type: 'setStripWww', value });
       await loadData();
-      updateToggle(el.stripWwwToggle, value);
-    });
+      viewManager.updateSettingsToggles(state);
+    },
 
-    // Blend warnings toggle (optional - only in settings view)
-    if (el.blendWarningsToggle) {
-      el.blendWarningsToggle.addEventListener('click', async (e) => {
-        if (e.target.tagName !== 'BUTTON') return;
-        const showWarnings = parseValue(e.target.dataset.value);
-        await browser.runtime.sendMessage({ type: 'setHideBlendWarning', value: !showWarnings });
-        await loadData();
-        updateToggle(el.blendWarningsToggle, showWarnings);
-      });
-    }
+    onBlendWarningsToggle: async (showWarnings) => {
+      await browser.runtime.sendMessage({ type: 'setHideBlendWarning', value: !showWarnings });
+      await loadData();
+      viewManager.updateSettingsToggles(state);
+    },
 
-    // Container subdomains toggle
-    el.containerSubdomainsToggle.addEventListener('click', async (e) => {
-      if (e.target.tagName !== 'BUTTON' || !selectedContainer) return;
-      const value = parseValue(e.target.dataset.value);
+    onContainerSubdomainsToggle: async (value) => {
+      if (!selectedContainer) return;
       await browser.runtime.sendMessage({
         type: 'setContainerSubdomains',
         cookieStoreId: selectedContainer.cookieStoreId,
         value
       });
       await loadData();
-      updateToggle(el.containerSubdomainsToggle, value);
-    });
+      viewManager.showDetailView(selectedContainer, state, containers);
+    },
 
-    // Create container
-    el.createContainerBtn.addEventListener('click', async () => {
-      const name = el.newContainerName.value.trim();
-      if (!name) return;
+    onCreateContainer: async (name) => {
       await browser.contextualIdentities.create({
         name,
         color: 'blue',
         icon: 'briefcase'
       });
-      el.newContainerName.value = '';
       await loadData();
       renderFilteredContainerList();
-    });
+    },
 
-    el.newContainerName.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') el.createContainerBtn.click();
-    });
-
-    // Add domain
-    el.addDomainBtn.addEventListener('click', async () => {
-      const domain = el.newDomain.value.trim().toLowerCase();
-      if (!domain || !selectedContainer) {
-        console.warn('Add domain failed:', { domain, selectedContainer });
+    onAddDomain: async (domain) => {
+      if (!selectedContainer) {
+        logger.warn('Add domain failed: no container selected');
         return;
       }
       await browser.runtime.sendMessage({
@@ -344,40 +238,27 @@ export function createUIController(options = {}) {
         domain,
         containerName: selectedContainer.name
       });
-      el.newDomain.value = '';
       await loadData();
-      renderDomainList(state, selectedContainer.cookieStoreId, el.domainList);
-    });
+      viewManager.showDetailView(selectedContainer, state, containers);
+    },
 
-    el.newDomain.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') el.addDomainBtn.click();
-    });
+    onRemoveDomain: async (domain) => {
+      await browser.runtime.sendMessage({ type: 'removeRule', domain });
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
+    },
 
-    // Domain list clicks
-    el.domainList.addEventListener('click', async (e) => {
-      if (e.target.classList.contains('remove-btn')) {
-        const domain = e.target.dataset.domain;
-        await browser.runtime.sendMessage({ type: 'removeRule', domain });
-        await loadData();
-        renderDomainList(state, selectedContainer.cookieStoreId, el.domainList);
-        return;
-      }
-      if (e.target.tagName === 'BUTTON' && e.target.closest('.domain-subdomains-toggle')) {
-        const toggle = e.target.closest('.domain-subdomains-toggle');
-        const domain = toggle.dataset.domain;
-        const value = parseValue(e.target.dataset.value);
-        await browser.runtime.sendMessage({
-          type: 'setDomainSubdomains',
-          domain,
-          value
-        });
-        await loadData();
-        renderDomainList(state, selectedContainer.cookieStoreId, el.domainList);
-      }
-    });
+    onDomainSubdomainsToggle: async (domain, value) => {
+      await browser.runtime.sendMessage({
+        type: 'setDomainSubdomains',
+        domain,
+        value
+      });
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
+    },
 
-    // Delete container
-    el.deleteContainerBtn.addEventListener('click', async () => {
+    onDeleteContainer: async () => {
       if (!selectedContainer) return;
       const domains = Object.entries(state.domainRules)
         .filter(([_, rule]) => rule.cookieStoreId === selectedContainer.cookieStoreId)
@@ -388,13 +269,11 @@ export function createUIController(options = {}) {
       await browser.contextualIdentities.remove(selectedContainer.cookieStoreId);
       await loadData();
       showListView();
-    });
+    },
 
-    // Add exclusion
-    el.addExclusionBtn.addEventListener('click', async () => {
-      const domain = el.newExclusion.value.trim().toLowerCase();
-      if (!domain || !selectedContainer) {
-        console.warn('Add exclusion failed:', { domain, selectedContainer });
+    onAddExclusion: async (domain) => {
+      if (!selectedContainer) {
+        logger.warn('Add exclusion failed: no container selected');
         return;
       }
       await browser.runtime.sendMessage({
@@ -402,54 +281,140 @@ export function createUIController(options = {}) {
         cookieStoreId: selectedContainer.cookieStoreId,
         domain
       });
-      el.newExclusion.value = '';
       await loadData();
-      renderExclusionList(state, selectedContainer.cookieStoreId, el.exclusionList);
-    });
+      viewManager.showDetailView(selectedContainer, state, containers);
+    },
 
-    el.newExclusion.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') el.addExclusionBtn.click();
-    });
+    onRemoveExclusion: async (domain) => {
+      if (!selectedContainer) return;
+      await browser.runtime.sendMessage({
+        type: 'removeExclusion',
+        cookieStoreId: selectedContainer.cookieStoreId,
+        domain
+      });
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
+    },
 
-    // Exclusion list clicks
-    el.exclusionList.addEventListener('click', async (e) => {
-      if (e.target.classList.contains('remove-exclusion-btn')) {
-        const domain = e.target.dataset.domain;
-        await browser.runtime.sendMessage({
-          type: 'removeExclusion',
-          cookieStoreId: selectedContainer.cookieStoreId,
-          domain
-        });
-        await loadData();
-        renderExclusionList(state, selectedContainer.cookieStoreId, el.exclusionList);
-      }
-    });
-
-    // Add blend
-    el.addBlendBtn.addEventListener('click', () => {
-      const domain = el.newBlend.value.trim().toLowerCase();
-      if (!domain || !selectedContainer) return;
+    onAddBlend: (domain) => {
+      if (!selectedContainer) return;
       pendingBlendDomain = domain;
       if (state.hideBlendWarning) {
         confirmAddBlend();
       } else {
         el.blendWarningOverlay.style.display = 'flex';
       }
-    });
+    },
 
-    el.newBlend.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') el.addBlendBtn.click();
-    });
+    onRemoveBlend: async (domain) => {
+      if (!selectedContainer) return;
+      await browser.runtime.sendMessage({
+        type: 'removeBlend',
+        cookieStoreId: selectedContainer.cookieStoreId,
+        domain
+      });
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
+    },
 
-    // Blend warning dialog
-    el.blendWarningCancel.addEventListener('click', () => {
+    onTabContainersClick: () => {
+      if (selectedContainer) {
+        showDetailView(selectedContainer);
+      } else {
+        showListView();
+      }
+    },
+
+    onTabSettingsClick: () => {
+      viewManager.updateSettingsToggles(state);
+      viewManager.switchView('settings', selectedContainer, views);
+      activeView = 'settings';
+    },
+
+    onTabPendingClick: () => {
+      viewManager.switchView('pending', selectedContainer, views);
+      activeView = 'pending';
+    },
+
+    onSearchInput: (value) => {
+      searchQuery = value;
+      debouncedFilter();
+    },
+
+    onPendingAllow: async (domain) => {
+      if (!currentTabId) return;
+      const tab = await browser.tabs.get(currentTabId);
+      const tabDomain = new URL(tab.url).hostname;
+      const tabRule = state.domainRules[tabDomain];
+      await browser.runtime.sendMessage({
+        type: 'allowDomain',
+        tabId: currentTabId,
+        domain,
+        addRule: true,
+        containerName: tabRule?.containerName
+      });
+      await refreshPending();
+    },
+
+    onPendingOnce: async (domain) => {
+      if (!currentTabId) return;
+      await browser.runtime.sendMessage({
+        type: 'allowOnce',
+        tabId: currentTabId,
+        domain
+      });
+      await refreshPending();
+    },
+
+    onPendingBlock: async (domain) => {
+      if (!currentTabId) return;
+      await browser.runtime.sendMessage({
+        type: 'blockDomain',
+        tabId: currentTabId,
+        domain,
+        addExclusion: true,
+        cookieStoreId: currentTabCookieStoreId
+      });
+      await refreshPending();
+    },
+
+    onPendingBlend: async (domain, ruleDomain) => {
+      if (!currentTabId) return;
+      pendingBlendDomain = domain;
+      pendingBlendRuleDomain = ruleDomain;
+      pendingBlendFromPending = true;
+      if (state.hideBlendWarning) {
+        await confirmPendingBlend();
+      } else {
+        el.blendWarningOverlay.style.display = 'flex';
+      }
+    },
+
+    onTabActivated: async (activeInfo) => {
+      currentTabId = activeInfo.tabId;
+      try {
+        const tab = await browser.tabs.get(activeInfo.tabId);
+        currentTabCookieStoreId = tab.cookieStoreId;
+      } catch {
+        currentTabCookieStoreId = null;
+      }
+      await refreshPending();
+    },
+
+    onTabUpdated: async (tabId, changeInfo) => {
+      if (tabId === currentTabId && changeInfo.status === 'loading') {
+        await refreshPending();
+      }
+    },
+
+    onBlendWarningCancel: () => {
       el.blendWarningOverlay.style.display = 'none';
       pendingBlendDomain = null;
       pendingBlendRuleDomain = null;
       pendingBlendFromPending = false;
-    });
+    },
 
-    el.blendWarningConfirm.addEventListener('click', async () => {
+    onBlendWarningConfirm: async () => {
       const hideWarning = el.hideBlendWarning.checked;
       if (hideWarning) {
         await browser.runtime.sendMessage({ type: 'setHideBlendWarning', value: true });
@@ -460,116 +425,10 @@ export function createUIController(options = {}) {
       } else {
         await confirmAddBlend();
       }
-    });
+    },
+  };
 
-    // Blend list clicks
-    el.blendList.addEventListener('click', async (e) => {
-      if (e.target.classList.contains('remove-blend-btn')) {
-        const domain = e.target.dataset.domain;
-        await browser.runtime.sendMessage({
-          type: 'removeBlend',
-          cookieStoreId: selectedContainer.cookieStoreId,
-          domain
-        });
-        await loadData();
-        renderBlendList(state, selectedContainer.cookieStoreId, el.blendList, containers);
-      }
-    });
-
-    // Tab clicks (works for both popup header tabs and sidebar bottom tabs)
-    if (el.tabContainers) {
-      el.tabContainers.addEventListener('click', () => {
-        if (selectedContainer) {
-          showDetailView(selectedContainer);
-        } else {
-          showListView();
-        }
-      });
-    }
-
-    if (el.tabSettings) {
-      el.tabSettings.addEventListener('click', () => {
-        updateSettingsToggles();
-        switchView('settings');
-      });
-    }
-
-    if (el.tabPending) {
-      el.tabPending.addEventListener('click', () => {
-        switchView('pending');
-      });
-    }
-
-    // Search filter
-    el.searchFilter.addEventListener('input', (e) => {
-      searchQuery = e.target.value;
-      debouncedFilter();
-    });
-
-    // Pending list clicks
-    el.pendingList.addEventListener('click', async (e) => {
-      if (!currentTabId) return;
-      const domain = e.target.dataset.domain;
-      if (!domain) return;
-
-      if (e.target.classList.contains('allow-btn')) {
-        const tab = await browser.tabs.get(currentTabId);
-        const tabDomain = new URL(tab.url).hostname;
-        const tabRule = state.domainRules[tabDomain];
-        await browser.runtime.sendMessage({
-          type: 'allowDomain',
-          tabId: currentTabId,
-          domain,
-          addRule: true,
-          containerName: tabRule?.containerName
-        });
-        await refreshPending();
-      } else if (e.target.classList.contains('once-btn')) {
-        await browser.runtime.sendMessage({
-          type: 'allowOnce',
-          tabId: currentTabId,
-          domain
-        });
-        await refreshPending();
-      } else if (e.target.classList.contains('block-btn')) {
-        await browser.runtime.sendMessage({
-          type: 'blockDomain',
-          tabId: currentTabId,
-          domain,
-          addExclusion: true,
-          cookieStoreId: currentTabCookieStoreId
-        });
-        await refreshPending();
-      } else if (e.target.classList.contains('blend-btn')) {
-        pendingBlendDomain = domain;
-        pendingBlendRuleDomain = e.target.dataset.ruleDomain || domain;
-        pendingBlendFromPending = true;
-        if (state.hideBlendWarning) {
-          await confirmPendingBlend();
-        } else {
-          el.blendWarningOverlay.style.display = 'flex';
-        }
-      }
-    });
-
-    // Tab change listeners
-    browser.tabs.onActivated.addListener(async (activeInfo) => {
-      currentTabId = activeInfo.tabId;
-      try {
-        const tab = await browser.tabs.get(activeInfo.tabId);
-        currentTabCookieStoreId = tab.cookieStoreId;
-      } catch {
-        currentTabCookieStoreId = null;
-      }
-      await refreshPending();
-    });
-
-    browser.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
-      if (tabId === currentTabId && changeInfo.status === 'loading') {
-        await refreshPending();
-      }
-    });
-  }
+  const eventSetup = createEventSetup(el, callbacks);
 
   async function init() {
     cacheElements();
@@ -579,7 +438,7 @@ export function createUIController(options = {}) {
       currentTabCookieStoreId = tab.cookieStoreId;
     }
     await loadData();
-    setupEventListeners();
+    eventSetup.setupAll();
     showListView();
     startPendingRefresh();
   }

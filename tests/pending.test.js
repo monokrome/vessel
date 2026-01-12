@@ -489,7 +489,7 @@ describe('Domain consolidation', () => {
   });
 
   describe('Sibling subdomain consolidation', () => {
-    it('consolidates two subdomains of the same parent', () => {
+    it('does not consolidate subdomains automatically', () => {
       const tabId = 1;
       const resolve1 = vi.fn();
       const resolve2 = vi.fn();
@@ -497,15 +497,15 @@ describe('Domain consolidation', () => {
       tracker.addPendingDecision(tabId, 'a.svc.cloudflare.com', resolve1);
       tracker.addPendingDecision(tabId, 'b.svc.cloudflare.com', resolve2);
 
-      // Should be consolidated under svc.cloudflare.com
+      // Should show as 2 separate domains, not consolidated
       const pending = tracker.getPendingDomainsForTab(tabId);
-      expect(pending).toHaveLength(1);
-      expect(pending[0].domain).toBe('svc.cloudflare.com');
-      expect(pending[0].domains).toContain('a.svc.cloudflare.com');
-      expect(pending[0].domains).toContain('b.svc.cloudflare.com');
+      expect(pending).toHaveLength(2);
+      const domains = pending.map(p => p.domain).sort();
+      expect(domains).toContain('a.svc.cloudflare.com');
+      expect(domains).toContain('b.svc.cloudflare.com');
     });
 
-    it('resolves all consolidated resolvers together', () => {
+    it('resolves all child domains when parent is resolved', () => {
       const tabId = 1;
       const resolve1 = vi.fn();
       const resolve2 = vi.fn();
@@ -515,15 +515,15 @@ describe('Domain consolidation', () => {
       tracker.addPendingDecision(tabId, 'y.cdn.example.net', resolve2);
       tracker.addPendingDecision(tabId, 'z.cdn.example.net', resolve3);
 
-      // Allow using any of the consolidated domains
-      tracker.allowDomain(tabId, 'x.cdn.example.net');
+      // Resolve parent domain - should resolve all children
+      tracker.allowDomain(tabId, 'cdn.example.net');
 
       expect(resolve1).toHaveBeenCalledWith({});
       expect(resolve2).toHaveBeenCalledWith({});
       expect(resolve3).toHaveBeenCalledWith({});
     });
 
-    it('keeps different parent domains separate', () => {
+    it('keeps all domains separate', () => {
       const tabId = 1;
 
       tracker.addPendingDecision(tabId, 'a.svc.cloudflare.com', vi.fn());
@@ -531,34 +531,32 @@ describe('Domain consolidation', () => {
       tracker.addPendingDecision(tabId, 'cloudflare.com', vi.fn());
 
       const pending = tracker.getPendingDomainsForTab(tabId);
-      expect(pending).toHaveLength(2);
+      expect(pending).toHaveLength(3);
 
       const domains = pending.map(p => p.domain).sort();
-      expect(domains).toContain('svc.cloudflare.com');
+      expect(domains).toContain('a.svc.cloudflare.com');
+      expect(domains).toContain('b.svc.cloudflare.com');
       expect(domains).toContain('cloudflare.com');
     });
 
-    it('adds new subdomain to existing pattern', () => {
+    it('adds new subdomain as separate item', () => {
       const tabId = 1;
       const resolvers = [];
 
-      // First two create the pattern
       tracker.addPendingDecision(tabId, 'a.api.service.io', (r) => resolvers.push(r));
       tracker.addPendingDecision(tabId, 'b.api.service.io', (r) => resolvers.push(r));
-
-      // Third should join the pattern
       tracker.addPendingDecision(tabId, 'c.api.service.io', (r) => resolvers.push(r));
 
+      // Should show as 3 separate domains
       const pending = tracker.getPendingDomainsForTab(tabId);
-      expect(pending).toHaveLength(1);
-      expect(pending[0].domains).toHaveLength(3);
+      expect(pending).toHaveLength(3);
 
-      // Allow should resolve all
+      // Resolving parent should resolve all
       tracker.allowDomain(tabId, 'api.service.io');
       expect(resolvers).toHaveLength(3);
     });
 
-    it('counts consolidated groups correctly', () => {
+    it('counts individual domains correctly', () => {
       const tabId = 1;
 
       // 5 subdomains of cdn.example.com
@@ -574,12 +572,12 @@ describe('Domain consolidation', () => {
       // 1 direct domain
       tracker.addPendingDecision(tabId, 'other.net', vi.fn());
 
-      // Should count as 3 groups, not 9 individual domains
-      expect(tracker.getPendingDomainCount(tabId)).toBe(3);
-      expect(tracker.getTotalPendingCount()).toBe(3);
+      // Should count as 9 individual domains (no consolidation)
+      expect(tracker.getPendingDomainCount(tabId)).toBe(9);
+      expect(tracker.getTotalPendingCount()).toBe(9);
     });
 
-    it('aggregates request counts across consolidated domains', () => {
+    it('tracks request counts per domain', () => {
       const tabId = 1;
 
       // Multiple requests to each subdomain
@@ -591,8 +589,13 @@ describe('Domain consolidation', () => {
       }
 
       const pending = tracker.getPendingDomainsForTab(tabId);
-      expect(pending).toHaveLength(1);
-      expect(pending[0].count).toBe(30);
+      expect(pending).toHaveLength(2);
+
+      const domainA = pending.find(p => p.domain === 'a.cdn.site.com');
+      const domainB = pending.find(p => p.domain === 'b.cdn.site.com');
+
+      expect(domainA.count).toBe(10);
+      expect(domainB.count).toBe(20);
     });
   });
 
@@ -613,6 +616,78 @@ describe('Domain consolidation', () => {
       tracker.addPendingDecision(tabId, 'b.bar.com', vi.fn());
 
       expect(tracker.getPendingDomainCount(tabId)).toBe(2);
+    });
+  });
+
+  describe('Timeout handling', () => {
+    it('times out each domain independently', () => {
+      const tabId = 1;
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+
+      // Add first domain
+      tracker.addPendingDecision(tabId, 'a.svc.cloudflare.com', resolve1);
+
+      // Advance time a bit but not past timeout
+      vi.advanceTimersByTime(30000);
+
+      // Add second domain (no consolidation)
+      tracker.addPendingDecision(tabId, 'b.svc.cloudflare.com', resolve2);
+
+      // Advance past first domain's timeout (60s total from start)
+      vi.advanceTimersByTime(35000);
+
+      // First should have timed out, second should still be pending
+      expect(resolve1).toHaveBeenCalledWith({ cancel: true });
+      expect(resolve2).not.toHaveBeenCalled();
+      expect(tracker.hasPendingDecision(tabId, 'a.svc.cloudflare.com')).toBe(false);
+      expect(tracker.hasPendingDecision(tabId, 'b.svc.cloudflare.com')).toBe(true);
+    });
+
+    it('clears timeouts when parent domain resolves children', () => {
+      const tabId = 1;
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+
+      tracker.addPendingDecision(tabId, 'a.cdn.example.net', resolve1);
+      tracker.addPendingDecision(tabId, 'b.cdn.example.net', resolve2);
+
+      // Resolve parent domain - resolves all children
+      tracker.allowDomain(tabId, 'cdn.example.net');
+
+      expect(resolve1).toHaveBeenCalledTimes(1);
+      expect(resolve2).toHaveBeenCalledTimes(1);
+
+      // Advance past original timeout - should NOT call resolvers again
+      vi.advanceTimersByTime(70000);
+
+      expect(resolve1).toHaveBeenCalledTimes(1);
+      expect(resolve2).toHaveBeenCalledTimes(1);
+    });
+
+    it('each domain has independent timeout', () => {
+      const tabId = 1;
+      const resolve1 = vi.fn();
+      const resolve2 = vi.fn();
+
+      // Add first domain
+      tracker.addPendingDecision(tabId, 'x.api.service.io', resolve1);
+
+      // Advance 50 seconds (10 seconds remaining of 60 second timeout)
+      vi.advanceTimersByTime(50000);
+
+      // Add second domain - separate timeout starting now
+      tracker.addPendingDecision(tabId, 'y.api.service.io', resolve2);
+
+      // Advance 15 seconds - first should timeout (65s total), second should not (only 15s elapsed)
+      vi.advanceTimersByTime(15000);
+      expect(resolve1).toHaveBeenCalledWith({ cancel: true });
+      expect(resolve2).not.toHaveBeenCalled();
+
+      // Advance another 45 seconds (60s for second domain) - should timeout now
+      vi.advanceTimersByTime(45000);
+      expect(resolve1).toHaveBeenCalledTimes(1); // Still just once
+      expect(resolve2).toHaveBeenCalledWith({ cancel: true });
     });
   });
 });

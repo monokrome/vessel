@@ -7,11 +7,12 @@
  * 3. Everything else → temporary containers (auto-cleanup)
  */
 
+import { logger } from '../lib/logger.js';
 import { loadState } from './state.js';
 import { cleanupEmptyTempContainers } from './containers.js';
 import { setupRequestHandlers, initializeTabCache } from './requests.js';
 import { setupMessageHandlers } from './messages.js';
-import { setupContextMenus, setupMenuListeners, setupKeyboardShortcuts } from './menus.js';
+import { setupContextMenus, setupMenuListeners, setupMenuOnShown, setupKeyboardShortcuts } from './menus.js';
 
 async function init() {
   await loadState();
@@ -26,12 +27,13 @@ async function init() {
   // Setup context menus and keyboard shortcuts
   await setupContextMenus();
   setupMenuListeners();
+  setupMenuOnShown();
   setupKeyboardShortcuts();
 
   // Pre-populate tab cache
   await initializeTabCache(pendingTracker);
 
-  console.log('Vessel initialized');
+  logger.info('Vessel initialized');
 }
 
 init();

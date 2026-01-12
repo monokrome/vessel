@@ -2,6 +2,7 @@
  * Container operations for Vessel
  */
 
+import { logger } from '../lib/logger.js';
 import { TEMP_CONTAINER, DEFAULT_CONTAINER } from '../lib/constants.js';
 import { state, saveState } from './state.js';
 
@@ -24,7 +25,7 @@ export async function removeTempContainer(cookieStoreId) {
     state.tempContainers = state.tempContainers.filter(id => id !== cookieStoreId);
     await saveState();
   } catch (error) {
-    console.error('Failed to remove temp container:', error);
+    logger.error('Failed to remove temp container:', error);
   }
 }
 
@@ -45,22 +46,44 @@ export async function cleanupEmptyTempContainers() {
   const tabs = await browser.tabs.query({});
   const usedContainers = new Set(tabs.map(t => t.cookieStoreId));
 
-  // Clean up tracked temp containers
-  for (const cookieStoreId of [...state.tempContainers]) {
-    if (!usedContainers.has(cookieStoreId)) {
-      await removeTempContainer(cookieStoreId);
+  // Get all existing containers to validate our tracking
+  const allContainers = await browser.contextualIdentities.query({});
+  const existingContainerIds = new Set(allContainers.map(c => c.cookieStoreId));
+
+  // Remove stale IDs from our tracking (containers that no longer exist)
+  const validTempContainers = state.tempContainers.filter(id => existingContainerIds.has(id));
+  const hadStaleIds = validTempContainers.length !== state.tempContainers.length;
+
+  // Find temp containers to remove (not in use)
+  const containersToRemove = validTempContainers.filter(id => !usedContainers.has(id));
+
+  // Remove unused temp containers
+  for (const cookieStoreId of containersToRemove) {
+    try {
+      await browser.contextualIdentities.remove(cookieStoreId);
+    } catch {
+      // Container may have been removed already
     }
   }
 
+  // Update state once with all remaining containers
+  state.tempContainers = validTempContainers.filter(id => !containersToRemove.includes(id));
+
   // Also clean up any orphaned temp containers not in our tracking
-  const allContainers = await browser.contextualIdentities.query({});
   for (const container of allContainers) {
-    if (container.name === TEMP_CONTAINER.name && !usedContainers.has(container.cookieStoreId)) {
+    if (container.name === TEMP_CONTAINER.name &&
+        !usedContainers.has(container.cookieStoreId) &&
+        !state.tempContainers.includes(container.cookieStoreId)) {
       try {
         await browser.contextualIdentities.remove(container.cookieStoreId);
-      } catch (error) {
-        console.warn('Failed to remove orphaned temp container:', container.cookieStoreId, error);
+      } catch {
+        // Ignore errors for orphaned containers
       }
     }
+  }
+
+  // Save state only once at the end if anything changed
+  if (hadStaleIds || containersToRemove.length > 0) {
+    await saveState();
   }
 }

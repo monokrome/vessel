@@ -3,6 +3,7 @@
  * Uses a handler map instead of a switch statement
  */
 
+import { logger } from '../lib/logger.js';
 import { TEMP_CONTAINER, TIMING } from '../lib/constants.js';
 import { state, saveState } from './state.js';
 import { getOrCreatePermanentContainer, createTempContainer } from './containers.js';
@@ -127,11 +128,20 @@ const handlers = {
   async allowDomain(message) {
     // Allow this domain temporarily for this tab
     const tabInfo = tabInfoCache.get(message.tabId);
+    logger.debug('allowDomain called:', {
+      domain: message.domain,
+      tabId: message.tabId,
+      hasTabInfo: !!tabInfo,
+      tabInfoCookieStoreId: tabInfo?.cookieStoreId
+    });
     if (tabInfo) {
       tempAllowedDomains.set(message.domain, {
         cookieStoreId: tabInfo.cookieStoreId,
         tabId: message.tabId
       });
+      logger.debug('tempAllowedDomains set for', message.domain, 'in', tabInfo.cookieStoreId);
+    } else {
+      logger.warn('No tabInfo for tabId', message.tabId, '- tempAllowedDomains NOT set');
     }
     // Resolve pending requests for this domain (allow them to proceed)
     pendingTracker.allowDomain(message.tabId, message.domain);
@@ -218,6 +228,6 @@ export function setupMessageHandlers(deps) {
     if (handler) {
       return handler(message, sender);
     }
-    console.warn('Unknown message type:', message.type);
+    logger.warn('Unknown message type:', message.type);
   });
 }

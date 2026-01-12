@@ -11,7 +11,6 @@ import {
   isBlendedInContainer,
   findMatchingRule,
   findParentRule,
-  shouldNavigateToContainer,
   shouldBlockRequest,
 } from '../src/lib/domain.js';
 
@@ -545,66 +544,6 @@ describe('findParentRule', () => {
   });
 });
 
-describe('shouldNavigateToContainer', () => {
-  const createState = (domainRules = {}, overrides = {}) => ({
-    globalSubdomains: false,
-    containerSubdomains: {},
-    containerExclusions: {},
-    domainRules,
-    ...overrides,
-  });
-
-  it('returns null for about: URLs', () => {
-    const state = createState();
-    expect(shouldNavigateToContainer('about:blank', 'firefox-default', state, [])).toBe(null);
-  });
-
-  it('returns null for moz-extension: URLs', () => {
-    const state = createState();
-    expect(shouldNavigateToContainer('moz-extension://abc/page.html', 'firefox-default', state, [])).toBe(null);
-  });
-
-  it('returns null for invalid URLs', () => {
-    const state = createState();
-    expect(shouldNavigateToContainer('not-a-url', 'firefox-default', state, [])).toBe(null);
-  });
-
-  it('returns reopen action when rule exists and different container', () => {
-    const state = createState({
-      'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
-    });
-    const result = shouldNavigateToContainer('https://example.com', 'firefox-default', state, []);
-    expect(result).toEqual({ action: 'reopen', cookieStoreId: 'container-1' });
-  });
-
-  it('returns null when already in correct container', () => {
-    const state = createState({
-      'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
-    });
-    expect(shouldNavigateToContainer('https://example.com', 'container-1', state, [])).toBe(null);
-  });
-
-  it('returns ask action when subdomain setting is ask', () => {
-    const state = createState({
-      'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: 'ask' },
-    });
-    const result = shouldNavigateToContainer('https://api.example.com', 'firefox-default', state, []);
-    expect(result.action).toBe('ask');
-    expect(result.rule.shouldAsk).toBe(true);
-  });
-
-  it('returns temp action for unmatched domain in default container', () => {
-    const state = createState();
-    const result = shouldNavigateToContainer('https://example.com', 'firefox-default', state, []);
-    expect(result).toEqual({ action: 'temp' });
-  });
-
-  it('returns null for unmatched domain already in non-default container', () => {
-    const state = createState();
-    expect(shouldNavigateToContainer('https://example.com', 'container-1', state, [])).toBe(null);
-  });
-});
-
 describe('shouldBlockRequest', () => {
   const createState = (domainRules = {}, overrides = {}) => ({
     globalSubdomains: false,
@@ -723,7 +662,7 @@ describe('shouldBlockRequest', () => {
       'example.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
     });
     // Unknown third-party (tracker.com has no rule) from permanent container
-    // Should return no reason, which triggers pause in webRequest handler
+    // Should pause (no reason) - user needs to decide whether to allow
     const result = shouldBlockRequest('tracker.com', 'container-1', 'example.com', state, []);
     expect(result.block).toBe(false);
     expect(result.reason).toBeUndefined();
@@ -827,6 +766,24 @@ describe('shouldBlockRequest', () => {
     expect(result.reason).toBe('subdomain-allowed');
   });
 
+  it('allows sibling subdomain requests with container-level subdomain setting', () => {
+    // This tests the statsig.anthropic.com scenario:
+    // - anthropic.com is in domain rules with subdomains: null (inherits)
+    // - Container has subdomains enabled
+    // - Request from console.anthropic.com to statsig.anthropic.com should be allowed
+    const state = createState(
+      {
+        'anthropic.com': { cookieStoreId: 'anthropic-container', containerName: 'Anthropic', subdomains: null },
+      },
+      {
+        containerSubdomains: { 'anthropic-container': true },
+      }
+    );
+    const result = shouldBlockRequest('statsig.anthropic.com', 'anthropic-container', 'console.anthropic.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('subdomain-allowed');
+  });
+
   it('allows subdomain requests when container-level subdomain setting is true', () => {
     const state = createState(
       {
@@ -919,7 +876,7 @@ describe('shouldBlockRequest', () => {
     expect(result.reason).toBe('subdomain-allowed');
   });
 
-  it('pauses subdomain requests when subdomains disabled in permanent container', () => {
+  it('pauses subdomain requests when subdomains disabled (treated as unknown third-party)', () => {
     const state = createState(
       {
         'ubereats.com': { cookieStoreId: 'container-1', containerName: 'Food', subdomains: null },
@@ -927,7 +884,7 @@ describe('shouldBlockRequest', () => {
       }
     );
     // Subdomains explicitly disabled on uber.com - treated as unknown third-party
-    // In permanent container, unknown third-party requests are paused (no reason)
+    // Unknown third-party requests should pause for user decision
     const result = shouldBlockRequest('x.uber.com', 'container-1', 'ubereats.com', state, []);
     expect(result.block).toBe(false);
     expect(result.reason).toBeUndefined();
