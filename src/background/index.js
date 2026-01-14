@@ -15,10 +15,12 @@ import { setupMessageHandlers } from './messages.js';
 import { setupContextMenus, setupMenuListeners, setupMenuOnShown, setupKeyboardShortcuts } from './menus.js';
 
 async function init() {
+  // CRITICAL: Load state FIRST before registering any handlers
+  // If handlers fire before state loads, they'll see empty state
   await loadState();
   await cleanupEmptyTempContainers();
 
-  // Setup request handlers and get shared state
+  // Now that state is loaded, setup request handlers
   const { pendingTracker, tabInfoCache, tempAllowedDomains } = setupRequestHandlers();
 
   // Setup message handlers with dependencies
@@ -36,4 +38,7 @@ async function init() {
   logger.info('Vessel initialized');
 }
 
-init();
+// Catch initialization errors
+init().catch(err => {
+  console.error('Vessel initialization failed:', err);
+});

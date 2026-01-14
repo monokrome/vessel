@@ -35,15 +35,30 @@ const STATE_KEYS = [
 ];
 
 export async function loadState() {
-  const stored = await browser.storage.local.get(STATE_KEYS);
-  state.globalSubdomains = stored.globalSubdomains ?? false;
-  state.hideBlendWarning = stored.hideBlendWarning ?? false;
-  state.stripWww = stored.stripWww ?? false;
-  state.containerSubdomains = stored.containerSubdomains || {};
-  state.containerExclusions = stored.containerExclusions || {};
-  state.containerBlends = stored.containerBlends || {};
-  state.domainRules = stored.domainRules || {};
-  state.tempContainers = stored.tempContainers || [];
+  try {
+    const stored = await browser.storage.local.get(STATE_KEYS);
+    state.globalSubdomains = stored.globalSubdomains ?? false;
+    state.hideBlendWarning = stored.hideBlendWarning ?? false;
+    state.stripWww = stored.stripWww ?? false;
+    state.containerSubdomains = stored.containerSubdomains || {};
+    state.containerExclusions = stored.containerExclusions || {};
+    state.containerBlends = stored.containerBlends || {};
+    state.domainRules = stored.domainRules || {};
+    state.tempContainers = stored.tempContainers || [];
+
+    console.log('Vessel state loaded:', Object.keys(state.domainRules).length, 'domain rules');
+  } catch (error) {
+    console.error('Failed to load Vessel state:', error);
+    // Ensure state has valid defaults even if storage fails
+    state.globalSubdomains = false;
+    state.hideBlendWarning = false;
+    state.stripWww = false;
+    state.containerSubdomains = {};
+    state.containerExclusions = {};
+    state.containerBlends = {};
+    state.domainRules = {};
+    state.tempContainers = [];
+  }
 }
 
 export async function saveState() {

@@ -57,6 +57,14 @@ export function getContainerForUrl(url, currentCookieStoreId) {
   const domain = extractDomain(url);
   if (!domain) return null;
 
+  // Safety check: if state isn't initialized yet, default to temp container
+  if (!state || !state.domainRules || !state.tempContainers) {
+    if (currentCookieStoreId === FIREFOX_DEFAULT_CONTAINER) {
+      return { needsTempContainer: true };
+    }
+    return null;
+  }
+
   // Check if domain is blended into current container - if so, don't switch
   if (isDomainBlended(domain, currentCookieStoreId)) {
     return null;
