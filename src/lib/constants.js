@@ -35,7 +35,7 @@ export const FIREFOX_DEFAULT_CONTAINER = 'firefox-default';
 export const TIMING = {
   recentTabExpiry: 2000,      // How long to track recently created tabs
   cleanupDebounce: 500,       // Debounce delay for container cleanup
-  requestTimeout: 60000,      // Block requests after this timeout
+  requestTimeout: 10000,      // Block requests for max 10 seconds to prevent browser freezing
   pendingRefreshInterval: 1000 // How often to refresh pending list in UI
 };
 

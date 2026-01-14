@@ -413,7 +413,7 @@ export function setupRequestHandlers() {
 
   pendingTracker = createPendingTracker({
     onBadgeUpdate: debouncedBadgeUpdate,
-    requestTimeout: 60000,
+    requestTimeout: TIMING.requestTimeout,
   });
 
   setupTabListeners(pendingTracker);

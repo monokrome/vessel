@@ -12,3 +12,7 @@ node_modules/*
 
 # Claude Code local settings
 .claude/
+
+# Development profiles
+.extdev-profile/
+.extdev/
