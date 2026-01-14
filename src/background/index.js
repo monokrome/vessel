@@ -14,31 +14,56 @@ import { setupRequestHandlers, initializeTabCache } from './requests.js';
 import { setupMessageHandlers } from './messages.js';
 import { setupContextMenus, setupMenuListeners, setupMenuOnShown, setupKeyboardShortcuts } from './menus.js';
 
+let pendingTracker = null;
+
 async function init() {
+  console.log('Vessel initializing...', new Date().toISOString());
+
   // CRITICAL: Load state FIRST before registering any handlers
   // If handlers fire before state loads, they'll see empty state
   await loadState();
   await cleanupEmptyTempContainers();
 
-  // Now that state is loaded, setup request handlers
-  const { pendingTracker, tabInfoCache, tempAllowedDomains } = setupRequestHandlers();
+  // Setup handlers (only once at script load)
+  if (!pendingTracker) {
+    const handlers = setupRequestHandlers();
+    pendingTracker = handlers.pendingTracker;
 
-  // Setup message handlers with dependencies
-  setupMessageHandlers({ pendingTracker, tabInfoCache, tempAllowedDomains });
+    // Setup message handlers with dependencies
+    setupMessageHandlers(handlers);
 
-  // Setup context menus and keyboard shortcuts
-  await setupContextMenus();
-  setupMenuListeners();
-  setupMenuOnShown();
-  setupKeyboardShortcuts();
+    // Setup context menus and keyboard shortcuts
+    await setupContextMenus();
+    setupMenuListeners();
+    setupMenuOnShown();
+    setupKeyboardShortcuts();
+  }
 
-  // Pre-populate tab cache
+  // Always re-populate tab cache on init
   await initializeTabCache(pendingTracker);
 
-  logger.info('Vessel initialized');
+  logger.info('Vessel initialized', new Date().toISOString());
 }
 
-// Catch initialization errors
+// Listen for background script restarts
+// Even with persistent:true, Firefox may restart the background script
+browser.runtime.onStartup.addListener(() => {
+  console.log('Browser startup detected, reinitializing Vessel');
+  init().catch(err => console.error('Vessel reinitialization failed:', err));
+});
+
+browser.runtime.onInstalled.addListener(() => {
+  console.log('Extension installed/updated, initializing Vessel');
+  init().catch(err => console.error('Vessel initialization failed:', err));
+});
+
+// Detect if background script was suspended and reactivated
+// This can happen in Manifest V3 even with persistent:true
+if (typeof globalThis !== 'undefined' && globalThis.constructor.name === 'ServiceWorkerGlobalScope') {
+  console.log('Running as service worker (non-persistent background)');
+}
+
+// Initial startup
 init().catch(err => {
   console.error('Vessel initialization failed:', err);
 });

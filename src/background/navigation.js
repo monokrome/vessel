@@ -59,7 +59,9 @@ export function getContainerForUrl(url, currentCookieStoreId) {
 
   // Safety check: if state isn't initialized yet, default to temp container
   if (!state || !state.domainRules || !state.tempContainers) {
+    console.error('Vessel state not loaded when processing:', domain, 'from container:', currentCookieStoreId);
     if (currentCookieStoreId === FIREFOX_DEFAULT_CONTAINER) {
+      console.log('Creating temp container as fallback for:', domain);
       return { needsTempContainer: true };
     }
     return null;
