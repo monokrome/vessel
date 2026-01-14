@@ -301,15 +301,7 @@ export function createUIController(options = {}) {
       pendingBlendDomain = domain;
       if (state.hideBlendWarning) {
         confirmAddBlend();
-      } else if (_mode === 'popup') {
-        // Open blend warning in new tab for popup (limited space)
-        const url = browser.runtime.getURL('ask/blend-warning.html') +
-          `?domain=${encodeURIComponent(domain)}` +
-          `&cookieStoreId=${encodeURIComponent(selectedContainer.cookieStoreId)}` +
-          `&fromPending=false`;
-        browser.tabs.create({ url });
       } else {
-        // Use overlay for sidebar (more space)
         el.blendWarningOverlay.style.display = 'flex';
       }
     },
@@ -393,17 +385,7 @@ export function createUIController(options = {}) {
       pendingBlendFromPending = true;
       if (state.hideBlendWarning) {
         await confirmPendingBlend();
-      } else if (_mode === 'popup') {
-        // Open blend warning in new tab for popup (limited space)
-        const url = browser.runtime.getURL('ask/blend-warning.html') +
-          `?domain=${encodeURIComponent(domain)}` +
-          `&cookieStoreId=${encodeURIComponent(currentTabCookieStoreId)}` +
-          `&fromPending=true` +
-          `&ruleDomain=${encodeURIComponent(ruleDomain)}` +
-          `&tabId=${currentTabId}`;
-        browser.tabs.create({ url });
       } else {
-        // Use overlay for sidebar (more space)
         el.blendWarningOverlay.style.display = 'flex';
       }
     },

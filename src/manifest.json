@@ -72,7 +72,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["ask/ask.html", "ask/ask.js", "ask/blend-warning.html", "ask/blend-warning.js"],
+      "resources": ["ask/ask.html", "ask/ask.js"],
       "matches": ["<all_urls>"]
     }
   ]

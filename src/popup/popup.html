@@ -35,8 +35,32 @@
     .pending-list {
       max-height: 300px;
     }
-  </style>
-</head>
+
+    /* Overlay sits above popup content */
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+      overflow-y: auto;
+    }
+
+    .overlay .dialog {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 24px;
+      max-width: 100%;
+      width: auto;
+      min-width: 280px;
+    }
+  </style></head>
 
 <body class="vessel-popup">
   <!-- List View (Container list with search) -->
