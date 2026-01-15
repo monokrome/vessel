@@ -5,6 +5,7 @@
 import { logger } from '../lib/logger.js';
 import { TEMP_CONTAINER, DEFAULT_CONTAINER } from '../lib/constants.js';
 import { state, saveState } from './state.js';
+import { isInTempContainer, filterValidTempContainers } from '../lib/state-operations.js';
 
 export async function createTempContainer() {
   const container = await browser.contextualIdentities.create({
@@ -51,8 +52,9 @@ export async function cleanupEmptyTempContainers() {
   const existingContainerIds = new Set(allContainers.map(c => c.cookieStoreId));
 
   // Remove stale IDs from our tracking (containers that no longer exist)
-  const validTempContainers = state.tempContainers.filter(id => existingContainerIds.has(id));
-  const hadStaleIds = validTempContainers.length !== state.tempContainers.length;
+  const hadStaleIds = state.tempContainers.some(id => !existingContainerIds.has(id));
+  filterValidTempContainers(existingContainerIds, state);
+  const validTempContainers = state.tempContainers;
 
   // Find temp containers to remove (not in use)
   const containersToRemove = validTempContainers.filter(id => !usedContainers.has(id));
@@ -73,7 +75,7 @@ export async function cleanupEmptyTempContainers() {
   for (const container of allContainers) {
     if (container.name === TEMP_CONTAINER.name &&
         !usedContainers.has(container.cookieStoreId) &&
-        !state.tempContainers.includes(container.cookieStoreId)) {
+        !isInTempContainer(container.cookieStoreId, state)) {
       try {
         await browser.contextualIdentities.remove(container.cookieStoreId);
       } catch {

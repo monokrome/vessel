@@ -1,47 +1,77 @@
 /**
  * Message handlers for Vessel
- * Uses a handler map instead of a switch statement
  */
 
 import { logger } from '../lib/logger.js';
-import { TEMP_CONTAINER, TIMING } from '../lib/constants.js';
+import { MESSAGE_TYPES } from '../lib/message-types.js';
+import { TEMP_CONTAINER } from '../lib/constants.js';
 import { state, saveState } from './state.js';
 import { getOrCreatePermanentContainer, createTempContainer } from './containers.js';
 import { recentlyCreatedTabs } from './navigation.js';
+import { setTempAllowedDomain } from '../lib/data-loading.js';
+import { validateDomain, validateCookieStoreId, validateTabId, validateContainerName, validateBoolean } from '../lib/validators.js';
+import { isInTempContainer } from '../lib/state-operations.js';
 
-// These will be injected via setupMessageHandlers
 let pendingTracker = null;
 let tabInfoCache = null;
 let tempAllowedDomains = null;
 
+/**
+ * Add domain to container array (exclusions or blends)
+ * @param {string} arrayName - State array name
+ * @param {string} cookieStoreId - Container ID
+ * @param {string} domain - Domain to add
+ */
+function addToContainerArray(arrayName, cookieStoreId, domain) {
+  if (!state[arrayName][cookieStoreId]) {
+    state[arrayName][cookieStoreId] = [];
+  }
+  if (!state[arrayName][cookieStoreId].includes(domain)) {
+    state[arrayName][cookieStoreId].push(domain);
+  }
+}
+
+/**
+ * Remove domain from container array
+ * @param {string} arrayName - State array name
+ * @param {string} cookieStoreId - Container ID
+ * @param {string} domain - Domain to remove
+ */
+function removeFromContainerArray(arrayName, cookieStoreId, domain) {
+  if (state[arrayName][cookieStoreId]) {
+    state[arrayName][cookieStoreId] = state[arrayName][cookieStoreId].filter(d => d !== domain);
+  }
+}
+
 const handlers = {
-  async getState() {
+  [MESSAGE_TYPES.GET_STATE]: async function() {
     return state;
   },
 
-  async addRule(message) {
+  [MESSAGE_TYPES.ADD_RULE]: async function(message) {
+    validateDomain(message.domain);
+    validateContainerName(message.containerName);
+
     const container = await getOrCreatePermanentContainer(message.containerName);
     state.domainRules[message.domain] = {
       cookieStoreId: container.cookieStoreId,
       containerName: message.containerName,
       subdomains: message.subdomains ?? null
     };
-    // Remove from exclusions if present (mutually exclusive)
-    if (state.containerExclusions[container.cookieStoreId]) {
-      state.containerExclusions[container.cookieStoreId] =
-        state.containerExclusions[container.cookieStoreId].filter(d => d !== message.domain);
-    }
+    removeFromContainerArray('containerExclusions', container.cookieStoreId, message.domain);
     await saveState();
     return { success: true };
   },
 
-  async removeRule(message) {
+  [MESSAGE_TYPES.REMOVE_RULE]: async function(message) {
+    validateDomain(message.domain);
     delete state.domainRules[message.domain];
     await saveState();
     return { success: true };
   },
 
-  async setDomainSubdomains(message) {
+  [MESSAGE_TYPES.SET_DOMAIN_SUBDOMAINS]: async function(message) {
+    validateDomain(message.domain);
     if (state.domainRules[message.domain]) {
       state.domainRules[message.domain].subdomains = message.value;
       await saveState();
@@ -49,110 +79,96 @@ const handlers = {
     return { success: true };
   },
 
-  async setContainerSubdomains(message) {
+  [MESSAGE_TYPES.SET_CONTAINER_SUBDOMAINS]: async function(message) {
+    validateCookieStoreId(message.cookieStoreId);
     state.containerSubdomains[message.cookieStoreId] = message.value;
     await saveState();
     return { success: true };
   },
 
-  async setGlobalSubdomains(message) {
+  [MESSAGE_TYPES.SET_GLOBAL_SUBDOMAINS]: async function(message) {
+    validateBoolean(message.value, 'globalSubdomains');
     state.globalSubdomains = message.value;
     await saveState();
     return { success: true };
   },
 
-  async setHideBlendWarning(message) {
+  [MESSAGE_TYPES.SET_HIDE_BLEND_WARNING]: async function(message) {
+    validateBoolean(message.value, 'hideBlendWarning');
     state.hideBlendWarning = message.value;
     await saveState();
     return { success: true };
   },
 
-  async setStripWww(message) {
+  [MESSAGE_TYPES.SET_STRIP_WWW]: async function(message) {
+    validateBoolean(message.value, 'stripWww');
     state.stripWww = message.value;
     await saveState();
     return { success: true };
   },
 
-  async addExclusion(message) {
-    if (!state.containerExclusions[message.cookieStoreId]) {
-      state.containerExclusions[message.cookieStoreId] = [];
-    }
-    if (!state.containerExclusions[message.cookieStoreId].includes(message.domain)) {
-      state.containerExclusions[message.cookieStoreId].push(message.domain);
-    }
+  [MESSAGE_TYPES.ADD_EXCLUSION]: async function(message) {
+    validateCookieStoreId(message.cookieStoreId);
+    validateDomain(message.domain);
+    addToContainerArray('containerExclusions', message.cookieStoreId, message.domain);
     await saveState();
     return { success: true };
   },
 
-  async removeExclusion(message) {
-    if (state.containerExclusions[message.cookieStoreId]) {
-      state.containerExclusions[message.cookieStoreId] =
-        state.containerExclusions[message.cookieStoreId].filter(d => d !== message.domain);
-    }
+  [MESSAGE_TYPES.REMOVE_EXCLUSION]: async function(message) {
+    validateCookieStoreId(message.cookieStoreId);
+    validateDomain(message.domain);
+    removeFromContainerArray('containerExclusions', message.cookieStoreId, message.domain);
     await saveState();
     return { success: true };
   },
 
-  async addBlend(message) {
-    if (!state.containerBlends[message.cookieStoreId]) {
-      state.containerBlends[message.cookieStoreId] = [];
-    }
-    if (!state.containerBlends[message.cookieStoreId].includes(message.domain)) {
-      state.containerBlends[message.cookieStoreId].push(message.domain);
-    }
+  [MESSAGE_TYPES.ADD_BLEND]: async function(message) {
+    validateCookieStoreId(message.cookieStoreId);
+    validateDomain(message.domain);
+    addToContainerArray('containerBlends', message.cookieStoreId, message.domain);
     await saveState();
     return { success: true };
   },
 
-  async removeBlend(message) {
-    if (state.containerBlends[message.cookieStoreId]) {
-      state.containerBlends[message.cookieStoreId] =
-        state.containerBlends[message.cookieStoreId].filter(d => d !== message.domain);
-    }
+  [MESSAGE_TYPES.REMOVE_BLEND]: async function(message) {
+    validateCookieStoreId(message.cookieStoreId);
+    validateDomain(message.domain);
+    removeFromContainerArray('containerBlends', message.cookieStoreId, message.domain);
     await saveState();
     return { success: true };
   },
 
-  async getContainers() {
+  [MESSAGE_TYPES.GET_CONTAINERS]: async function() {
     const allContainers = await browser.contextualIdentities.query({});
-    // Filter out temp containers (by name and tracked IDs)
     return allContainers.filter(c =>
-      c.name !== TEMP_CONTAINER.name && !state.tempContainers.includes(c.cookieStoreId)
+      c.name !== TEMP_CONTAINER.name && !isInTempContainer(c.cookieStoreId, state)
     );
   },
 
-  async getPendingRequests(message) {
+  [MESSAGE_TYPES.GET_PENDING_REQUESTS]: async function(message) {
+    validateTabId(message.tabId);
     return pendingTracker.getPendingDomainsForTab(message.tabId);
   },
 
-  async allowDomain(message) {
-    // Allow this domain temporarily for this tab
+  [MESSAGE_TYPES.ALLOW_DOMAIN]: async function(message) {
+    validateDomain(message.domain);
+    validateTabId(message.tabId);
+
     const tabInfo = tabInfoCache.get(message.tabId);
-    logger.debug('allowDomain called:', {
-      domain: message.domain,
-      tabId: message.tabId,
-      hasTabInfo: !!tabInfo,
-      tabInfoCookieStoreId: tabInfo?.cookieStoreId
-    });
     if (tabInfo) {
-      tempAllowedDomains.set(message.domain, {
-        cookieStoreId: tabInfo.cookieStoreId,
-        tabId: message.tabId
-      });
-      logger.debug('tempAllowedDomains set for', message.domain, 'in', tabInfo.cookieStoreId);
+      setTempAllowedDomain(tempAllowedDomains, message.domain, tabInfo.cookieStoreId, message.tabId);
     } else {
-      logger.warn('No tabInfo for tabId', message.tabId, '- tempAllowedDomains NOT set');
+      logger.warn('No tabInfo for tabId', message.tabId);
     }
-    // Resolve pending requests for this domain (allow them to proceed)
+
     pendingTracker.allowDomain(message.tabId, message.domain);
 
-    // Optionally add rule for future requests
     if (message.addRule && message.containerName) {
       const container = await getOrCreatePermanentContainer(message.containerName);
       state.domainRules[message.domain] = {
         cookieStoreId: container.cookieStoreId,
         containerName: message.containerName,
-        // Enable subdomains if user explicitly selected a parent domain
         subdomains: message.enableSubdomains ? true : null
       };
       await saveState();
@@ -160,45 +176,47 @@ const handlers = {
     return { success: true };
   },
 
-  async blockDomain(message) {
-    // Resolve pending requests for this domain (block them)
+  [MESSAGE_TYPES.BLOCK_DOMAIN]: async function(message) {
+    validateDomain(message.domain);
+    validateTabId(message.tabId);
+
     pendingTracker.blockDomain(message.tabId, message.domain);
 
-    // Optionally add to exclusion list for future requests
     if (message.addExclusion && message.cookieStoreId) {
-      if (!state.containerExclusions[message.cookieStoreId]) {
-        state.containerExclusions[message.cookieStoreId] = [];
-      }
-      if (!state.containerExclusions[message.cookieStoreId].includes(message.domain)) {
-        state.containerExclusions[message.cookieStoreId].push(message.domain);
-      }
+      validateCookieStoreId(message.cookieStoreId);
+      addToContainerArray('containerExclusions', message.cookieStoreId, message.domain);
       await saveState();
     }
     return { success: true };
   },
 
-  async allowOnce(message) {
-    // Allow this domain temporarily for this tab
+  [MESSAGE_TYPES.ALLOW_ONCE]: async function(message) {
+    validateDomain(message.domain);
+    validateTabId(message.tabId);
+
     const tabInfo = tabInfoCache.get(message.tabId);
     if (tabInfo) {
-      tempAllowedDomains.set(message.domain, {
-        cookieStoreId: tabInfo.cookieStoreId,
-        tabId: message.tabId
-      });
+      setTempAllowedDomain(tempAllowedDomains, message.domain, tabInfo.cookieStoreId, message.tabId);
     }
-    // Resolve pending requests for this domain (allow them to proceed)
     pendingTracker.allowDomain(message.tabId, message.domain);
     return { success: true };
   },
 
-  async navigateInContainer(message) {
-    // Used by ask page to navigate after decision
+  [MESSAGE_TYPES.NAVIGATE_IN_CONTAINER]: async function(message) {
+    validateTabId(message.tabId);
+    if (!message.url || typeof message.url !== 'string') {
+      throw new Error('Invalid url');
+    }
+
     const tab = await browser.tabs.get(message.tabId);
     const tempContainer = message.useTempContainer ? await createTempContainer() : null;
     const targetCookieStoreId = tempContainer ? tempContainer.cookieStoreId : message.cookieStoreId;
 
-    recentlyCreatedTabs.add(message.tabId);
-    setTimeout(() => recentlyCreatedTabs.delete(message.tabId), TIMING.recentTabExpiry);
+    if (targetCookieStoreId) {
+      validateCookieStoreId(targetCookieStoreId);
+    }
+
+    recentlyCreatedTabs.set(message.tabId, Date.now());
 
     await browser.tabs.update(message.tabId, { url: message.url });
 
@@ -209,8 +227,7 @@ const handlers = {
         index: tab.index,
         active: true
       });
-      recentlyCreatedTabs.add(newTab.id);
-      setTimeout(() => recentlyCreatedTabs.delete(newTab.id), TIMING.recentTabExpiry);
+      recentlyCreatedTabs.set(newTab.id, Date.now());
       await browser.tabs.remove(message.tabId);
     }
 
@@ -226,8 +243,14 @@ export function setupMessageHandlers(deps) {
   browser.runtime.onMessage.addListener(async (message, sender) => {
     const handler = handlers[message.type];
     if (handler) {
-      return handler(message, sender);
+      try {
+        return await handler(message, sender);
+      } catch (error) {
+        logger.error('Message handler error:', message.type, error);
+        return { success: false, error: error.message };
+      }
     }
     logger.warn('Unknown message type:', message.type);
+    return { success: false, error: 'Unknown message type' };
   });
 }

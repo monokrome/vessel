@@ -9,6 +9,8 @@ import { STRINGS } from './strings.js';
 
 /**
  * Escape HTML to prevent XSS in text content
+ * @param {string} str - String to escape
+ * @returns {string} Escaped HTML
  */
 export function escapeHtml(str) {
   const div = document.createElement('div');
@@ -18,6 +20,8 @@ export function escapeHtml(str) {
 
 /**
  * Escape string for use in HTML attributes (escapes quotes too)
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string safe for HTML attributes
  */
 export function escapeAttr(str) {
   return str
@@ -30,6 +34,8 @@ export function escapeAttr(str) {
 
 /**
  * Parse string value from data attributes to typed value
+ * @param {string} str - String value to parse
+ * @returns {boolean|string|null} Parsed value (true/false/'ask'/null)
  */
 export function parseValue(str) {
   if (str === 'true') return true;
@@ -40,6 +46,8 @@ export function parseValue(str) {
 
 /**
  * Update toggle button states based on current value
+ * @param {HTMLElement} container - Container with toggle buttons
+ * @param {boolean|string|null} value - Current value to match
  */
 export function updateToggle(container, value) {
   container.querySelectorAll('button').forEach(btn => {
@@ -50,6 +58,9 @@ export function updateToggle(container, value) {
 
 /**
  * Get domains assigned to a container
+ * @param {Object} state - Extension state
+ * @param {string} cookieStoreId - Container ID
+ * @returns {Array<{domain: string, subdomains: boolean|string|null}>} Domain list
  */
 export function getDomainsForContainer(state, cookieStoreId) {
   return Object.entries(state.domainRules)
@@ -59,6 +70,9 @@ export function getDomainsForContainer(state, cookieStoreId) {
 
 /**
  * Get exclusions for a container
+ * @param {Object} state - Extension state
+ * @param {string} cookieStoreId - Container ID
+ * @returns {string[]} Excluded domains
  */
 export function getExclusionsForContainer(state, cookieStoreId) {
   return state.containerExclusions[cookieStoreId] || [];
@@ -66,8 +80,13 @@ export function getExclusionsForContainer(state, cookieStoreId) {
 
 /**
  * Get container color hex value
+ * @param {string} colorName - Color name from Firefox
+ * @returns {string} Hex color code
  */
 export function getContainerColor(colorName) {
+  if (colorName && !CONTAINER_COLORS[colorName]) {
+    console.warn('[Vessel] Unknown container color:', colorName, '- using default');
+  }
   return CONTAINER_COLORS[colorName] || CONTAINER_COLORS.toolbar;
 }
 
@@ -245,30 +264,4 @@ export function createRenameInput(titleElement, currentName, onSave, onCancel) {
   input.addEventListener('blur', handleSave);
 
   return input;
-}
-
-/**
- * Add item to a set-like array in state object
- * Handles the common pattern: create array if missing, add if not present
- */
-export function addToStateArray(obj, key, value) {
-  if (!obj[key]) {
-    obj[key] = [];
-  }
-  if (!obj[key].includes(value)) {
-    obj[key].push(value);
-    return true;
-  }
-  return false;
-}
-
-/**
- * Remove item from a state array
- */
-export function removeFromStateArray(obj, key, value) {
-  if (obj[key]) {
-    obj[key] = obj[key].filter(v => v !== value);
-    return true;
-  }
-  return false;
 }

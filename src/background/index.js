@@ -14,32 +14,28 @@ import { setupRequestHandlers, initializeTabCache } from './requests.js';
 import { setupMessageHandlers } from './messages.js';
 import { setupContextMenus, setupMenuListeners, setupMenuOnShown, setupKeyboardShortcuts } from './menus.js';
 
-let pendingTracker = null;
+// CRITICAL: Register request handlers IMMEDIATELY at module load
+// This ensures zero window where requests can bypass the container pipeline
+const handlers = setupRequestHandlers();
+const pendingTracker = handlers.pendingTracker;
+
+// Setup message handlers immediately (they need the handlers object)
+setupMessageHandlers(handlers);
 
 async function init() {
-  console.log('Vessel initializing...', new Date().toISOString());
+  logger.info('Vessel initializing...', new Date().toISOString());
 
-  // CRITICAL: Load state FIRST before registering any handlers
-  // If handlers fire before state loads, they'll see empty state
+  // Load state - request handlers will wait for this via stateLoadedPromise
   await loadState();
   await cleanupEmptyTempContainers();
 
-  // Setup handlers (only once at script load)
-  if (!pendingTracker) {
-    const handlers = setupRequestHandlers();
-    pendingTracker = handlers.pendingTracker;
+  // Setup context menus and keyboard shortcuts
+  await setupContextMenus();
+  setupMenuListeners();
+  setupMenuOnShown();
+  setupKeyboardShortcuts();
 
-    // Setup message handlers with dependencies
-    setupMessageHandlers(handlers);
-
-    // Setup context menus and keyboard shortcuts
-    await setupContextMenus();
-    setupMenuListeners();
-    setupMenuOnShown();
-    setupKeyboardShortcuts();
-  }
-
-  // Always re-populate tab cache on init
+  // Populate tab cache
   await initializeTabCache(pendingTracker);
 
   logger.info('Vessel initialized', new Date().toISOString());
@@ -48,22 +44,39 @@ async function init() {
 // Listen for background script restarts
 // Even with persistent:true, Firefox may restart the background script
 browser.runtime.onStartup.addListener(() => {
-  console.log('Browser startup detected, reinitializing Vessel');
-  init().catch(err => console.error('Vessel reinitialization failed:', err));
+  logger.info('Browser startup detected, reinitializing Vessel');
+  init().catch(err => logger.error('Vessel reinitialization failed:', err));
 });
 
 browser.runtime.onInstalled.addListener(() => {
-  console.log('Extension installed/updated, initializing Vessel');
-  init().catch(err => console.error('Vessel initialization failed:', err));
+  logger.info('Extension installed/updated, initializing Vessel');
+  init().catch(err => logger.error('Vessel initialization failed:', err));
 });
 
 // Detect if background script was suspended and reactivated
 // This can happen in Manifest V3 even with persistent:true
 if (typeof globalThis !== 'undefined' && globalThis.constructor.name === 'ServiceWorkerGlobalScope') {
-  console.log('Running as service worker (non-persistent background)');
+  logger.warn('Running as service worker (non-persistent background) - this may cause issues!');
+} else {
+  logger.info('Running as persistent background page');
 }
+
+// Generate a unique ID for this background script instance
+const INSTANCE_ID = `vessel-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+logger.info('Background script instance ID:', INSTANCE_ID);
+
+// Store instance ID to detect restarts
+browser.storage.local.set({ vesselInstanceId: INSTANCE_ID });
+
+// Check if we're a new instance (background script restarted)
+browser.storage.local.get('vesselLastInstanceId').then(result => {
+  if (result.vesselLastInstanceId && result.vesselLastInstanceId !== INSTANCE_ID) {
+    logger.warn('Background script restarted! Previous instance:', result.vesselLastInstanceId, 'New instance:', INSTANCE_ID);
+  }
+  browser.storage.local.set({ vesselLastInstanceId: INSTANCE_ID });
+});
 
 // Initial startup
 init().catch(err => {
-  console.error('Vessel initialization failed:', err);
+  logger.error('Vessel initialization failed:', err);
 });

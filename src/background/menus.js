@@ -6,6 +6,8 @@ import { extractDomain, findMatchingRule } from '../lib/domain.js';
 import { createTempContainer } from './containers.js';
 import { tempAllowedDomains, addTempBlend } from './requests.js';
 import { state } from './state.js';
+import { setTempAllowedDomain } from '../lib/data-loading.js';
+import { getActiveTab } from '../lib/tab-utils.js';
 
 export async function setupContextMenus() {
   await browser.menus.removeAll();
@@ -92,10 +94,7 @@ export function setupMenuListeners() {
       });
 
       if (domain) {
-        tempAllowedDomains.set(domain, {
-          cookieStoreId: container.cookieStoreId,
-          tabId: newTab.id
-        });
+        setTempAllowedDomain(tempAllowedDomains, domain, container.cookieStoreId, newTab.id);
       }
 
       await browser.tabs.remove(tab.id);
@@ -119,8 +118,8 @@ export function setupMenuListeners() {
 export function setupKeyboardShortcuts() {
   browser.commands.onCommand.addListener(async (command) => {
     if (command === 'add-domain') {
-      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-      if (tabs[0]) {
+      const tab = await getActiveTab();
+      if (tab) {
         await browser.pageAction.openPopup();
       }
     }
