@@ -222,18 +222,6 @@ export async function handleMainFrameSwitch(tabId, url, containerInfo) {
     return;
   }
 
-  // Safety check: only modify tabs that are blank/new or are navigating to the target URL
-  // This prevents accidentally modifying the wrong tab (e.g., the opener tab on CTRL+click)
-  const tabUrl = tab.url || '';
-  const isBlankTab = NEW_TAB_PAGES.has(tabUrl) || tabUrl === '' || tabUrl === 'about:blank';
-  const isNavigatingToTarget = tabUrl === url;
-
-  // If the tab already has different content, don't modify it
-  // This is a safety check for race conditions with CTRL+click
-  if (!isBlankTab && !isNavigatingToTarget) {
-    return;
-  }
-
   let targetCookieStoreId = containerInfo.targetCookieStoreId;
 
   // Create temp container if needed
