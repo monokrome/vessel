@@ -245,6 +245,19 @@ export async function handleMainFrameSwitch(tabId, url, containerInfo) {
 
   // Switch to target container
   if (targetCookieStoreId && targetCookieStoreId !== tab.cookieStoreId) {
+    // Verify target container still exists before switching
+    try {
+      await browser.contextualIdentities.get(targetCookieStoreId);
+    } catch {
+      logger.error('Target container no longer exists:', targetCookieStoreId, 'for url:', url);
+      // Container was deleted - fall back to temp container
+      const tempContainer = await createTempContainer();
+      targetCookieStoreId = tempContainer.cookieStoreId;
+    }
+    logger.info('Switching container:', tab.cookieStoreId, '->', targetCookieStoreId, 'for:', url);
     await reopenInContainer(tab, targetCookieStoreId, url);
+    logger.info('Container switch completed for:', url);
+  } else {
+    logger.warn('Container switch skipped:', { targetCookieStoreId, tabContainer: tab.cookieStoreId, url });
   }
 }

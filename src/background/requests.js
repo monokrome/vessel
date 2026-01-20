@@ -258,7 +258,10 @@ async function handleMainFrameRequest(details) {
 
   // Handle container switch directly (not via setTimeout)
   // This matches Mozilla Multi-Account Containers pattern
-  handleMainFrameSwitch(tabId, details.url, containerInfo);
+  // Note: Not awaited intentionally, but errors must be caught
+  handleMainFrameSwitch(tabId, details.url, containerInfo).catch(error => {
+    logger.error('Container switch failed:', error, 'url:', details.url, 'container:', details.cookieStoreId);
+  });
 
   return { cancel: true };
 }
