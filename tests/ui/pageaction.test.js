@@ -376,7 +376,7 @@ describe('Page Action UI', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
 
       const overlay = document.getElementById('confirmOverlay');
-      expect(overlay.style.display).toBe('flex');
+      expect(overlay.classList.contains('active')).toBe(true);
       expect(document.getElementById('confirmDomain').textContent).toBe('paypal.com');
       expect(document.getElementById('confirmMessage').textContent).toContain('Shopping');
       expect(document.getElementById('confirmMessage').textContent).toContain('Work');
@@ -414,13 +414,13 @@ describe('Page Action UI', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
 
       const overlay = document.getElementById('confirmOverlay');
-      expect(overlay.style.display).toBe('flex');
+      expect(overlay.classList.contains('active')).toBe(true);
 
       // Click cancel
       document.getElementById('confirmCancel').click();
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(overlay.style.display).toBe('none');
+      expect(overlay.classList.contains('active')).toBe(false);
     });
 
     it('sends addBlend and allowOnce messages when confirming blend', async () => {

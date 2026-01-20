@@ -84,7 +84,7 @@ describe('Tab tracking sets', () => {
 
   describe('recentlyCreatedTabs', () => {
     it('can track tab IDs', () => {
-      recentlyCreatedTabs.set(123, Date.now());
+      recentlyCreatedTabs.add(123);
       expect(recentlyCreatedTabs.has(123)).toBe(true);
       expect(recentlyCreatedTabs.has(456)).toBe(false);
     });
@@ -92,7 +92,7 @@ describe('Tab tracking sets', () => {
 
   describe('tabsBeingMoved', () => {
     it('can track tab IDs being moved', () => {
-      tabsBeingMoved.set(789, Date.now());
+      tabsBeingMoved.add(789);
       expect(tabsBeingMoved.has(789)).toBe(true);
       expect(tabsBeingMoved.has(123)).toBe(false);
     });

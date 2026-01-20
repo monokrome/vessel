@@ -3,11 +3,6 @@
  * Pure functions with no browser API dependencies
  */
 
-/**
- * Extract hostname from URL
- * @param {string} url - URL to extract domain from
- * @returns {string|null} Hostname or null if invalid URL
- */
 export function extractDomain(url) {
   try {
     const urlObj = new URL(url);
@@ -17,12 +12,6 @@ export function extractDomain(url) {
   }
 }
 
-/**
- * Get parent domain by removing leftmost subdomain
- * @param {string} domain - Domain to get parent of
- * @returns {string|null} Parent domain or null if already at apex
- * @example getParentDomain('api.example.com') // 'example.com'
- */
 export function getParentDomain(domain) {
   const parts = domain.split('.');
   if (parts.length <= 2) return null;
@@ -32,10 +21,8 @@ export function getParentDomain(domain) {
 /**
  * Get parent domain for consolidation suggestions.
  * Strips one subdomain level, ignoring www.
- * @param {string} domain - Domain to get parent of
- * @returns {string|null} Parent domain or null
- * @example getParentForConsolidation("a.svc.cloudflare.net") // "svc.cloudflare.net"
- * @example getParentForConsolidation("www.example.com") // "example.com"
+ * e.g., "a.svc.cloudflare.net" → "svc.cloudflare.net"
+ * e.g., "www.example.com" → "example.com" (strips www)
  */
 export function getParentForConsolidation(domain) {
   if (!domain) return null;
@@ -55,9 +42,7 @@ export function getParentForConsolidation(domain) {
 
 /**
  * Find patterns in a list of domains that could be consolidated.
- * @param {string[]} domains - List of domains to analyze
- * @param {number} minChildren - Minimum children required for consolidation
- * @returns {Map<string, string[]>} Map of parent domain to child domains
+ * Returns map of parent domain → [child domains]
  */
 export function findConsolidationPatterns(domains, minChildren = 2) {
   const parentCounts = new Map();
@@ -83,22 +68,12 @@ export function findConsolidationPatterns(domains, minChildren = 2) {
   return patterns;
 }
 
-/**
- * Check if a domain is a subdomain of another
- * @param {string} subdomain - Potential subdomain
- * @param {string} parent - Parent domain
- * @returns {boolean} True if subdomain is a child of parent
- * @example isSubdomainOf('api.example.com', 'example.com') // true
- */
 export function isSubdomainOf(subdomain, parent) {
   return subdomain.endsWith('.' + parent) && subdomain !== parent;
 }
 
 /**
  * Normalize domain by optionally stripping www. prefix
- * @param {string} domain - Domain to normalize
- * @param {boolean} stripWww - Whether to strip www prefix
- * @returns {string} Normalized domain
  */
 export function normalizeDomain(domain, stripWww = false) {
   if (!domain) return domain;
@@ -108,12 +83,6 @@ export function normalizeDomain(domain, stripWww = false) {
   return domain;
 }
 
-/**
- * Get effective subdomain setting for a rule (checks domain, container, then global)
- * @param {Object} rule - Domain rule
- * @param {Object} state - Extension state
- * @returns {boolean|string} Subdomain setting (true/false/'ask')
- */
 export function getEffectiveSubdomainSetting(rule, state) {
   // Per-domain setting
   if (rule.subdomains === true || rule.subdomains === false || rule.subdomains === 'ask') {
@@ -145,13 +114,6 @@ export function isBlockedForContainer(domain, cookieStoreId, state) {
   return false;
 }
 
-/**
- * Check if domain is blended into a container
- * @param {string} domain - Domain to check
- * @param {string} cookieStoreId - Container ID
- * @param {Object} state - Extension state
- * @returns {boolean} True if domain is blended
- */
 export function isBlendedInContainer(domain, cookieStoreId, state) {
   const blends = state.containerBlends?.[cookieStoreId] || [];
   if (blends.length === 0) return false;
@@ -169,12 +131,6 @@ export function isBlendedInContainer(domain, cookieStoreId, state) {
   return false;
 }
 
-/**
- * Find rule matching domain (direct match or subdomain match)
- * @param {string} domain - Domain to find rule for
- * @param {Object} state - Extension state
- * @returns {Object|null} Matching rule or null
- */
 export function findMatchingRule(domain, state) {
   // Normalize domain if stripWww is enabled
   const searchDomain = normalizeDomain(domain, state.stripWww);

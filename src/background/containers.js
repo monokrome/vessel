@@ -5,7 +5,6 @@
 import { logger } from '../lib/logger.js';
 import { TEMP_CONTAINER, DEFAULT_CONTAINER } from '../lib/constants.js';
 import { state, saveState } from './state.js';
-import { isInTempContainer, filterValidTempContainers } from '../lib/state-operations.js';
 
 export async function createTempContainer() {
   const container = await browser.contextualIdentities.create({
@@ -44,38 +43,16 @@ export async function getOrCreatePermanentContainer(name) {
 }
 
 export async function cleanupEmptyTempContainers() {
-  let tabs;
-  try {
-    tabs = await browser.tabs.query({});
-  } catch (error) {
-    logger.error('Failed to query tabs during cleanup:', error);
-    return;
-  }
-
-  // Safety check: if no tabs found, something is wrong - don't clean up
-  // This prevents accidentally deleting all containers during startup edge cases
-  if (!tabs || tabs.length === 0) {
-    logger.warn('No tabs found during cleanup - skipping to prevent data loss');
-    return;
-  }
-
+  const tabs = await browser.tabs.query({});
   const usedContainers = new Set(tabs.map(t => t.cookieStoreId));
 
   // Get all existing containers to validate our tracking
-  let allContainers;
-  try {
-    allContainers = await browser.contextualIdentities.query({});
-  } catch (error) {
-    logger.error('Failed to query containers during cleanup:', error);
-    return;
-  }
-
+  const allContainers = await browser.contextualIdentities.query({});
   const existingContainerIds = new Set(allContainers.map(c => c.cookieStoreId));
 
   // Remove stale IDs from our tracking (containers that no longer exist)
-  const hadStaleIds = state.tempContainers.some(id => !existingContainerIds.has(id));
-  filterValidTempContainers(existingContainerIds, state);
-  const validTempContainers = state.tempContainers;
+  const validTempContainers = state.tempContainers.filter(id => existingContainerIds.has(id));
+  const hadStaleIds = validTempContainers.length !== state.tempContainers.length;
 
   // Find temp containers to remove (not in use)
   const containersToRemove = validTempContainers.filter(id => !usedContainers.has(id));
@@ -96,7 +73,7 @@ export async function cleanupEmptyTempContainers() {
   for (const container of allContainers) {
     if (container.name === TEMP_CONTAINER.name &&
         !usedContainers.has(container.cookieStoreId) &&
-        !isInTempContainer(container.cookieStoreId, state)) {
+        !state.tempContainers.includes(container.cookieStoreId)) {
       try {
         await browser.contextualIdentities.remove(container.cookieStoreId);
       } catch {

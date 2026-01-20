@@ -3,7 +3,6 @@
  */
 
 import { logger } from './logger.js';
-import { isSubdomainOf } from './domain.js';
 
 export function createOperations(storage, consolidation, requestTimeout) {
   function getPendingDomainsForTab(tabId) {
@@ -107,7 +106,7 @@ export function createOperations(storage, consolidation, requestTimeout) {
         if (decision.tabId !== tabId) continue;
 
         for (const pendingDomain of decision.domains) {
-          if (pendingDomain === domain || isSubdomainOf(pendingDomain, domain)) {
+          if (pendingDomain.endsWith('.' + domain) || pendingDomain === domain) {
             logger.debug('Found child domain', pendingDomain, 'matching parent', domain);
             keysToResolve.push(key);
             break;

@@ -3,7 +3,6 @@
  */
 
 import { parseValue, createRenameInput } from './ui-shared.js';
-import { normalizeDomainInput, clearInput, setupEnterKeySubmit } from './input-utils.js';
 
 export function createEventSetup(el, callbacks) {
   const {
@@ -92,21 +91,25 @@ export function createEventSetup(el, callbacks) {
       const name = el.newContainerName.value.trim();
       if (!name) return;
       await onCreateContainer(name);
-      clearInput(el.newContainerName);
+      el.newContainerName.value = '';
     });
 
-    setupEnterKeySubmit(el.newContainerName, el.createContainerBtn);
+    el.newContainerName.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') el.createContainerBtn.click();
+    });
   }
 
   function setupDomainEvents() {
     el.addDomainBtn.addEventListener('click', async () => {
-      const domain = normalizeDomainInput(el.newDomain.value);
+      const domain = el.newDomain.value.trim().toLowerCase();
       if (!domain) return;
       await onAddDomain(domain);
-      clearInput(el.newDomain);
+      el.newDomain.value = '';
     });
 
-    setupEnterKeySubmit(el.newDomain, el.addDomainBtn);
+    el.newDomain.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') el.addDomainBtn.click();
+    });
 
     el.domainList.addEventListener('click', async (e) => {
       if (e.target.classList.contains('remove-btn')) {
@@ -127,13 +130,15 @@ export function createEventSetup(el, callbacks) {
 
   function setupExclusionEvents() {
     el.addExclusionBtn.addEventListener('click', async () => {
-      const domain = normalizeDomainInput(el.newExclusion.value);
+      const domain = el.newExclusion.value.trim().toLowerCase();
       if (!domain) return;
       await onAddExclusion(domain);
-      clearInput(el.newExclusion);
+      el.newExclusion.value = '';
     });
 
-    setupEnterKeySubmit(el.newExclusion, el.addExclusionBtn);
+    el.newExclusion.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') el.addExclusionBtn.click();
+    });
 
     el.exclusionList.addEventListener('click', async (e) => {
       if (e.target.classList.contains('remove-exclusion-btn')) {
@@ -145,12 +150,14 @@ export function createEventSetup(el, callbacks) {
 
   function setupBlendEvents() {
     el.addBlendBtn.addEventListener('click', () => {
-      const domain = normalizeDomainInput(el.newBlend.value);
+      const domain = el.newBlend.value.trim().toLowerCase();
       if (!domain) return;
       onAddBlend(domain);
     });
 
-    setupEnterKeySubmit(el.newBlend, el.addBlendBtn);
+    el.newBlend.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') el.addBlendBtn.click();
+    });
 
     el.blendList.addEventListener('click', async (e) => {
       if (e.target.classList.contains('remove-blend-btn')) {
@@ -206,11 +213,6 @@ export function createEventSetup(el, callbacks) {
     browser.tabs.onUpdated.addListener(onTabUpdated);
   }
 
-  function cleanupTabListeners() {
-    browser.tabs.onActivated.removeListener(onTabActivated);
-    browser.tabs.onUpdated.removeListener(onTabUpdated);
-  }
-
   function setupAll() {
     setupContainerListEvents();
     setupNavigationEvents();
@@ -225,9 +227,5 @@ export function createEventSetup(el, callbacks) {
     setupTabListeners();
   }
 
-  function cleanup() {
-    cleanupTabListeners();
-  }
-
-  return { setupAll, cleanup };
+  return { setupAll };
 }

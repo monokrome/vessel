@@ -8,10 +8,6 @@ import { TIMING } from './constants.js';
 import { matchesContainer, debounce } from './fuzzy.js';
 import { createViewManager } from './ui-controller-views.js';
 import { createEventSetup } from './ui-controller-events.js';
-import { loadStateAndContainers } from './data-loading.js';
-import { createBlendState } from './blend-state.js';
-import { getActiveTab } from './tab-utils.js';
-import { showOverlay, hideOverlay } from './overlay-utils.js';
 
 /**
  * Create and initialize the UI controller
@@ -31,17 +27,14 @@ export function createUIController(options = {}) {
   let currentTabCookieStoreId = null;
   let pendingRefreshInterval = null;
   let activeView = 'containers'; // 'containers', 'settings', 'pending'
+  let pendingBlendDomain = null;
+  let pendingBlendRuleDomain = null;
+  let pendingBlendFromPending = false;
   let searchQuery = '';
-
-  // Blend state manager
-  const blendState = createBlendState();
 
   // DOM element cache
   const el = {};
 
-  /**
-   * Cache references to DOM elements for faster access
-   */
   function cacheElements() {
     const ids = [
       'listView', 'detailView', 'settingsView', 'pendingView',
@@ -60,37 +53,16 @@ export function createUIController(options = {}) {
     }
   }
 
-  /**
-   * Load state and containers from background script
-   */
   async function loadData() {
-    const data = await loadStateAndContainers();
-    state = data.state;
-    containers = data.containers;
+    state = await browser.runtime.sendMessage({ type: 'getState' });
+    containers = await browser.runtime.sendMessage({ type: 'getContainers' });
   }
 
-  /**
-   * Refresh state and update detail view for selected container
-   */
-  async function refreshDetailView() {
-    await loadData();
-    if (selectedContainer) {
-      viewManager.showDetailView(selectedContainer, state, containers);
-    }
+  async function getCurrentTab() {
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    return tabs[0] || null;
   }
 
-  /**
-   * Refresh state and update settings view
-   */
-  async function refreshSettingsView() {
-    await loadData();
-    viewManager.updateSettingsToggles(state);
-  }
-
-  /**
-   * Load pending requests for current tab
-   * @returns {Promise<Array>} List of pending requests
-   */
   async function loadPendingRequests() {
     if (!currentTabId) return [];
     try {
@@ -104,10 +76,7 @@ export function createUIController(options = {}) {
     }
   }
 
-  /**
-   * View elements accessor object
-   * Provides lazy access to view DOM elements
-   */
+  // Create view manager
   const views = {
     get listView() { return el.listView; },
     get detailView() { return el.detailView; },
@@ -115,10 +84,6 @@ export function createUIController(options = {}) {
     get pendingView() { return el.pendingView; },
   };
 
-  /**
-   * View manager handles rendering and view transitions
-   * Created with state/containers accessors for reactive updates
-   */
   const viewManager = createViewManager(
     el,
     () => state,
@@ -126,19 +91,12 @@ export function createUIController(options = {}) {
     () => currentTabCookieStoreId
   );
 
-  /**
-   * Create filter function for fuzzy search
-   * @returns {Function|null} Filter function or null if no search query
-   */
   function createFilterFn() {
     if (!searchQuery) return null;
     return (container, domains, exclusions) =>
       matchesContainer(searchQuery, container, domains, exclusions);
   }
 
-  /**
-   * Render container list with current filter
-   */
   function renderFilteredContainerList() {
     viewManager.renderFilteredContainerList(containers, state, createFilterFn());
   }
@@ -149,9 +107,6 @@ export function createUIController(options = {}) {
     }
   }, 150);
 
-  /**
-   * Show container list view
-   */
   function showListView() {
     selectedContainer = null;
     renderFilteredContainerList();
@@ -160,10 +115,6 @@ export function createUIController(options = {}) {
     activeView = 'containers';
   }
 
-  /**
-   * Show container detail view
-   * @param {Object} container - Container to show details for
-   */
   function showDetailView(container) {
     selectedContainer = container;
     viewManager.showDetailView(container, state, containers);
@@ -171,17 +122,11 @@ export function createUIController(options = {}) {
     activeView = 'containers';
   }
 
-  /**
-   * Refresh pending requests display
-   */
   async function refreshPending() {
     const pending = await loadPendingRequests();
     viewManager.renderPendingRequests(pending, state);
   }
 
-  /**
-   * Start periodic refresh of pending requests
-   */
   function startPendingRefresh() {
     if (pendingRefreshInterval) {
       clearInterval(pendingRefreshInterval);
@@ -190,32 +135,25 @@ export function createUIController(options = {}) {
     pendingRefreshInterval = setInterval(refreshPending, TIMING.pendingRefreshInterval);
   }
 
-  /**
-   * Confirm and execute blend from detail view
-   */
   async function confirmAddBlend() {
-    const blend = blendState.get();
-    if (!blend.domain || !selectedContainer) return;
+    if (!pendingBlendDomain || !selectedContainer) return;
 
     await browser.runtime.sendMessage({
       type: 'addBlend',
       cookieStoreId: selectedContainer.cookieStoreId,
-      domain: blend.domain
+      domain: pendingBlendDomain
     });
 
     el.newBlend.value = '';
-    blendState.clear();
-    await refreshDetailView();
+    pendingBlendDomain = null;
+    await loadData();
+    viewManager.showDetailView(selectedContainer, state, containers);
   }
 
-  /**
-   * Confirm and execute blend from pending requests view
-   */
   async function confirmPendingBlend() {
-    const blend = blendState.get();
-    if (!blend.domain || !currentTabCookieStoreId) return;
+    if (!pendingBlendDomain || !currentTabCookieStoreId) return;
 
-    const domainToBlend = blend.ruleDomain || blend.domain;
+    const domainToBlend = pendingBlendRuleDomain || pendingBlendDomain;
     await browser.runtime.sendMessage({
       type: 'addBlend',
       cookieStoreId: currentTabCookieStoreId,
@@ -224,10 +162,12 @@ export function createUIController(options = {}) {
     await browser.runtime.sendMessage({
       type: 'allowOnce',
       tabId: currentTabId,
-      domain: blend.domain
+      domain: pendingBlendDomain
     });
 
-    blendState.clear();
+    pendingBlendDomain = null;
+    pendingBlendRuleDomain = null;
+    pendingBlendFromPending = false;
     await loadData();
     await refreshPending();
   }
@@ -251,17 +191,20 @@ export function createUIController(options = {}) {
 
     onGlobalSubdomainsToggle: async (value) => {
       await browser.runtime.sendMessage({ type: 'setGlobalSubdomains', value });
-      await refreshSettingsView();
+      await loadData();
+      viewManager.updateSettingsToggles(state);
     },
 
     onStripWwwToggle: async (value) => {
       await browser.runtime.sendMessage({ type: 'setStripWww', value });
-      await refreshSettingsView();
+      await loadData();
+      viewManager.updateSettingsToggles(state);
     },
 
     onBlendWarningsToggle: async (showWarnings) => {
       await browser.runtime.sendMessage({ type: 'setHideBlendWarning', value: !showWarnings });
-      await refreshSettingsView();
+      await loadData();
+      viewManager.updateSettingsToggles(state);
     },
 
     onContainerSubdomainsToggle: async (value) => {
@@ -271,7 +214,8 @@ export function createUIController(options = {}) {
         cookieStoreId: selectedContainer.cookieStoreId,
         value
       });
-      await refreshDetailView();
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
     },
 
     onCreateContainer: async (name) => {
@@ -294,12 +238,14 @@ export function createUIController(options = {}) {
         domain,
         containerName: selectedContainer.name
       });
-      await refreshDetailView();
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
     },
 
     onRemoveDomain: async (domain) => {
       await browser.runtime.sendMessage({ type: 'removeRule', domain });
-      await refreshDetailView();
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
     },
 
     onDomainSubdomainsToggle: async (domain, value) => {
@@ -308,7 +254,8 @@ export function createUIController(options = {}) {
         domain,
         value
       });
-      await refreshDetailView();
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
     },
 
     onDeleteContainer: async () => {
@@ -334,7 +281,8 @@ export function createUIController(options = {}) {
         cookieStoreId: selectedContainer.cookieStoreId,
         domain
       });
-      await refreshDetailView();
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
     },
 
     onRemoveExclusion: async (domain) => {
@@ -344,16 +292,17 @@ export function createUIController(options = {}) {
         cookieStoreId: selectedContainer.cookieStoreId,
         domain
       });
-      await refreshDetailView();
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
     },
 
     onAddBlend: (domain) => {
       if (!selectedContainer) return;
-      blendState.set(domain);
+      pendingBlendDomain = domain;
       if (state.hideBlendWarning) {
         confirmAddBlend();
       } else {
-        showOverlay(el.blendWarningOverlay);
+        el.blendWarningOverlay.style.display = 'flex';
       }
     },
 
@@ -364,7 +313,8 @@ export function createUIController(options = {}) {
         cookieStoreId: selectedContainer.cookieStoreId,
         domain
       });
-      await refreshDetailView();
+      await loadData();
+      viewManager.showDetailView(selectedContainer, state, containers);
     },
 
     onTabContainersClick: () => {
@@ -430,11 +380,13 @@ export function createUIController(options = {}) {
 
     onPendingBlend: async (domain, ruleDomain) => {
       if (!currentTabId) return;
-      blendState.set(domain, ruleDomain, true);
+      pendingBlendDomain = domain;
+      pendingBlendRuleDomain = ruleDomain;
+      pendingBlendFromPending = true;
       if (state.hideBlendWarning) {
         await confirmPendingBlend();
       } else {
-        showOverlay(el.blendWarningOverlay);
+        el.blendWarningOverlay.style.display = 'flex';
       }
     },
 
@@ -456,8 +408,10 @@ export function createUIController(options = {}) {
     },
 
     onBlendWarningCancel: () => {
-      hideOverlay(el.blendWarningOverlay);
-      blendState.clear();
+      el.blendWarningOverlay.style.display = 'none';
+      pendingBlendDomain = null;
+      pendingBlendRuleDomain = null;
+      pendingBlendFromPending = false;
     },
 
     onBlendWarningConfirm: async () => {
@@ -465,9 +419,8 @@ export function createUIController(options = {}) {
       if (hideWarning) {
         await browser.runtime.sendMessage({ type: 'setHideBlendWarning', value: true });
       }
-      hideOverlay(el.blendWarningOverlay);
-      const blend = blendState.get();
-      if (blend.fromPending) {
+      el.blendWarningOverlay.style.display = 'none';
+      if (pendingBlendFromPending) {
         await confirmPendingBlend();
       } else {
         await confirmAddBlend();
@@ -477,18 +430,9 @@ export function createUIController(options = {}) {
 
   const eventSetup = createEventSetup(el, callbacks);
 
-  /**
-   * Initialize the UI controller
-   * - Cache DOM elements
-   * - Load current tab info
-   * - Load extension state and containers
-   * - Set up event listeners
-   * - Show initial view
-   * - Start periodic pending request refresh
-   */
   async function init() {
     cacheElements();
-    const tab = await getActiveTab();
+    const tab = await getCurrentTab();
     if (tab) {
       currentTabId = tab.id;
       currentTabCookieStoreId = tab.cookieStoreId;
