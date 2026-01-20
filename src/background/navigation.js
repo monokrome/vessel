@@ -266,8 +266,18 @@ export async function handleMainFrameSwitch(tabId, url, containerInfo) {
       targetCookieStoreId = tempContainer.cookieStoreId;
     }
     logger.info('Switching container:', tab.cookieStoreId, '->', targetCookieStoreId, 'for:', url);
-    await reopenInContainer(tab, targetCookieStoreId, url);
-    logger.info('Container switch completed for:', url);
+    try {
+      await reopenInContainer(tab, targetCookieStoreId, url);
+      logger.info('Container switch completed for:', url);
+    } catch (error) {
+      // Show visible notification on failure
+      browser.notifications.create({
+        type: 'basic',
+        title: 'Vessel: Container Switch Failed',
+        message: `Failed to switch to container for ${url}: ${error.message}`
+      });
+      throw error;
+    }
   } else {
     logger.warn('Container switch skipped:', { targetCookieStoreId, tabContainer: tab.cookieStoreId, url });
   }
