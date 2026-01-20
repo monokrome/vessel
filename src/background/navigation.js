@@ -211,18 +211,29 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
  * Called directly from webRequest handler (matching Mozilla Multi-Account Containers pattern).
  */
 export async function handleMainFrameSwitch(tabId, url, containerInfo) {
+  logger.info('handleMainFrameSwitch called:', { tabId, url, containerInfo });
+
   let tab;
   try {
     tab = await browser.tabs.get(tabId);
-  } catch {
-    return; // Tab already closed
+    logger.info('Got tab:', { id: tab.id, cookieStoreId: tab.cookieStoreId, url: tab.url });
+  } catch (error) {
+    logger.warn('Tab already closed:', tabId, error);
+    return;
   }
 
-  if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
+  if (recentlyCreatedTabs.has(tabId)) {
+    logger.info('Tab in recentlyCreatedTabs, skipping:', tabId);
+    return;
+  }
+
+  if (tabsBeingMoved.has(tabId)) {
+    logger.info('Tab in tabsBeingMoved, skipping:', tabId);
     return;
   }
 
   let targetCookieStoreId = containerInfo.targetCookieStoreId;
+  logger.info('Initial targetCookieStoreId:', targetCookieStoreId);
 
   // Create temp container if needed
   if (containerInfo.needsTempContainer) {
