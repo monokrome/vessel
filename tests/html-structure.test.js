@@ -70,13 +70,16 @@ describe('HTML Structure', () => {
   describe('Required HTML elements exist', () => {
     it('popup.html has essential elements', () => {
       const html = readFile('popup/popup.html');
-      expect(html).toContain('id="containerList"');
+      // containerList is now injected via JS templates
+      expect(html).toContain('id="containerListContainer"');
+      expect(html).toContain('id="tabContainers"');
     });
 
     it('sidebar.html has essential elements', () => {
       const html = readFile('sidebar/sidebar.html');
-      expect(html).toContain('id="containerList"');
-      expect(html).toContain('id="pendingList"');
+      // containerList and pendingList are now injected via JS templates
+      expect(html).toContain('id="containerListContainer"');
+      expect(html).toContain('id="pendingListContainer"');
       expect(html).toContain('id="tabContainers"');
       expect(html).toContain('id="tabPending"');
     });

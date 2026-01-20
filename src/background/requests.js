@@ -16,6 +16,7 @@ import {
   getContainerForUrl,
   handleMainFrameSwitch
 } from './navigation.js';
+import { scheduleBlendCleanup } from './blends.js';
 
 // Cache for tab info to avoid async lookups in blocking handler
 export const tabInfoCache = new Map();
@@ -31,94 +32,6 @@ function cleanupStaleAllowedDomains() {
 
 // Run cleanup every minute
 setInterval(cleanupStaleAllowedDomains, 60000);
-
-// Temporary container blends for OAuth flows
-// Map: originCookieStoreId → Map<domain, targetCookieStoreId>
-// Cleaned up after BOTH origin and target containers have no tabs
-export const tempContainerBlends = new Map();
-
-// Pending cleanup timers: blendKey → timerId
-const blendCleanupTimers = new Map();
-
-/**
- * Add a temporary blend - allows a domain from another container to work in the origin container
- * @param {string} originCookieStoreId - Container where the blend is active
- * @param {string} domain - Domain being blended in
- * @param {string} targetCookieStoreId - Container the domain normally belongs to
- */
-export function addTempBlend(originCookieStoreId, domain, targetCookieStoreId) {
-  if (!tempContainerBlends.has(originCookieStoreId)) {
-    tempContainerBlends.set(originCookieStoreId, new Map());
-  }
-  tempContainerBlends.get(originCookieStoreId).set(domain, targetCookieStoreId);
-
-  // Cancel any pending cleanup for this blend
-  const blendKey = `${originCookieStoreId}:${domain}`;
-  if (blendCleanupTimers.has(blendKey)) {
-    clearTimeout(blendCleanupTimers.get(blendKey));
-    blendCleanupTimers.delete(blendKey);
-  }
-}
-
-/**
- * Check if a domain is temporarily blended into a container
- * @param {string} domain - Domain to check
- * @param {string} cookieStoreId - Container to check in
- * @returns {boolean}
- */
-export function isTempBlended(domain, cookieStoreId) {
-  const blends = tempContainerBlends.get(cookieStoreId);
-  if (!blends) return false;
-
-  // Direct match
-  if (blends.has(domain)) return true;
-
-  // Check if domain is a subdomain of a blended domain
-  for (const blendedDomain of blends.keys()) {
-    if (isSubdomainOf(domain, blendedDomain)) return true;
-  }
-  return false;
-}
-
-/**
- * Schedule cleanup check for temp blends when a tab is removed
- */
-async function scheduleBlendCleanup() {
-  // Get all tabs to check which containers still have tabs
-  const tabs = await browser.tabs.query({});
-  const activeContainers = new Set(tabs.map(t => t.cookieStoreId));
-
-  // Check each origin container's blends
-  for (const [originCookieStoreId, blends] of tempContainerBlends) {
-    for (const [domain, targetCookieStoreId] of blends) {
-      const blendKey = `${originCookieStoreId}:${domain}`;
-
-      // If either container still has tabs, cancel any pending cleanup
-      if (activeContainers.has(originCookieStoreId) || activeContainers.has(targetCookieStoreId)) {
-        if (blendCleanupTimers.has(blendKey)) {
-          clearTimeout(blendCleanupTimers.get(blendKey));
-          blendCleanupTimers.delete(blendKey);
-        }
-        continue;
-      }
-
-      // Both containers are empty - schedule cleanup if not already scheduled
-      if (!blendCleanupTimers.has(blendKey)) {
-        const timerId = setTimeout(() => {
-          blendCleanupTimers.delete(blendKey);
-          const containerBlends = tempContainerBlends.get(originCookieStoreId);
-          if (containerBlends) {
-            containerBlends.delete(domain);
-            if (containerBlends.size === 0) {
-              tempContainerBlends.delete(originCookieStoreId);
-            }
-          }
-        }, TIMING.blendCleanupDelay);
-        blendCleanupTimers.set(blendKey, timerId);
-      }
-    }
-  }
-}
 
 // Badge update timeouts for debouncing
 const badgeUpdateTimeouts = new Map();
@@ -226,7 +139,26 @@ async function handleMainFrameRequest(details) {
     return {};
   }
 
-  const containerInfo = getContainerForUrl(details.url, details.cookieStoreId);
+  // Firefox may not provide cookieStoreId in some edge cases
+  // Fall back to querying the tab directly
+  let cookieStoreId = details.cookieStoreId;
+  if (!cookieStoreId) {
+    try {
+      const tab = await browser.tabs.get(tabId);
+      cookieStoreId = tab.cookieStoreId;
+    } catch {
+      // Tab doesn't exist - allow request to proceed normally
+      return {};
+    }
+  }
+
+  let containerInfo;
+  try {
+    containerInfo = getContainerForUrl(details.url, cookieStoreId);
+  } catch (error) {
+    logger.error('getContainerForUrl failed:', error, 'url:', details.url);
+    return {};
+  }
 
   if (!containerInfo) {
     return {};
@@ -260,7 +192,7 @@ async function handleMainFrameRequest(details) {
   // This matches Mozilla Multi-Account Containers pattern
   // Note: Not awaited intentionally, but errors must be caught
   handleMainFrameSwitch(tabId, details.url, containerInfo).catch(error => {
-    logger.error('Container switch failed:', error, 'url:', details.url, 'container:', details.cookieStoreId);
+    logger.error('Container switch failed:', error, 'url:', details.url, 'container:', cookieStoreId);
   });
 
   return { cancel: true };

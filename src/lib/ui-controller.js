@@ -12,6 +12,15 @@ import { loadStateAndContainers } from './data-loading.js';
 import { createBlendState } from './blend-state.js';
 import { getActiveTab } from './tab-utils.js';
 import { showOverlay, hideOverlay } from './overlay-utils.js';
+import {
+  createSearchBar,
+  createContainerList,
+  createNewContainerForm,
+  createSettingsContent,
+  createDetailViewContent,
+  createPendingList,
+  createBlendWarningDialog
+} from './html-templates.js';
 
 /**
  * Create and initialize the UI controller
@@ -38,6 +47,29 @@ export function createUIController(options = {}) {
 
   // DOM element cache
   const el = {};
+
+  /**
+   * Inject shared HTML templates into placeholder containers
+   */
+  function injectTemplates() {
+    const inject = (id, html) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = html;
+    };
+
+    inject('searchBarContainer', createSearchBar());
+    inject('containerListContainer', createContainerList());
+    inject('newContainerContainer', createNewContainerForm());
+    inject('pendingListContainer', createPendingList());
+    inject('blendWarningContainer', createBlendWarningDialog());
+
+    // Settings and detail content use class selectors
+    const settingsContent = document.querySelector('#settingsView .settings-content');
+    if (settingsContent) settingsContent.innerHTML = createSettingsContent();
+
+    const detailContent = document.querySelector('#detailView .detail-content');
+    if (detailContent) detailContent.innerHTML = createDetailViewContent();
+  }
 
   /**
    * Cache references to DOM elements for faster access
@@ -487,6 +519,7 @@ export function createUIController(options = {}) {
    * - Start periodic pending request refresh
    */
   async function init() {
+    injectTemplates();
     cacheElements();
     const tab = await getActiveTab();
     if (tab) {

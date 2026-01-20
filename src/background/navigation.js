@@ -7,7 +7,7 @@ import { FIREFOX_DEFAULT_CONTAINER, TIMING, IGNORED_SCHEMES, IGNORED_URLS } from
 import { logger } from '../lib/logger.js';
 import { state } from './state.js';
 import { createTempContainer } from './containers.js';
-import { isTempBlended } from './requests.js';
+import { isTempBlended } from './blends.js';
 import { cleanupStaleMapEntries } from '../lib/map-utils.js';
 import { isInTempContainer } from '../lib/state-operations.js';
 
@@ -211,34 +211,36 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
  * Called directly from webRequest handler (matching Mozilla Multi-Account Containers pattern).
  */
 export async function handleMainFrameSwitch(tabId, url, containerInfo) {
-  logger.info('handleMainFrameSwitch called:', { tabId, url, containerInfo });
-
   let tab;
   try {
     tab = await browser.tabs.get(tabId);
-    logger.info('Got tab:', { id: tab.id, cookieStoreId: tab.cookieStoreId, url: tab.url });
   } catch (error) {
     logger.warn('Tab already closed:', tabId, error);
     return;
   }
 
   if (recentlyCreatedTabs.has(tabId)) {
-    logger.info('Tab in recentlyCreatedTabs, skipping:', tabId);
+    logger.debug('Skipping tab in recentlyCreatedTabs:', tabId);
     return;
   }
 
   if (tabsBeingMoved.has(tabId)) {
-    logger.info('Tab in tabsBeingMoved, skipping:', tabId);
+    logger.debug('Skipping tab in tabsBeingMoved:', tabId);
     return;
   }
 
   let targetCookieStoreId = containerInfo.targetCookieStoreId;
-  logger.info('Initial targetCookieStoreId:', targetCookieStoreId);
 
   // Create temp container if needed
   if (containerInfo.needsTempContainer) {
-    const tempContainer = await createTempContainer();
-    targetCookieStoreId = tempContainer.cookieStoreId;
+    try {
+      const tempContainer = await createTempContainer();
+      targetCookieStoreId = tempContainer.cookieStoreId;
+      logger.debug('Created temp container:', targetCookieStoreId, 'for:', url);
+    } catch (error) {
+      logger.error('Failed to create temp container:', error, 'for url:', url);
+      throw error;
+    }
   }
 
   // Handle "ask" case
@@ -254,31 +256,33 @@ export async function handleMainFrameSwitch(tabId, url, containerInfo) {
     return;
   }
 
-  // Switch to target container
-  if (targetCookieStoreId && targetCookieStoreId !== tab.cookieStoreId) {
-    // Verify target container still exists before switching
+  // Validate we have a target
+  if (!targetCookieStoreId) {
+    logger.error('No targetCookieStoreId for container switch:', containerInfo, 'url:', url);
+    return;
+  }
+
+  // Check if switch is actually needed
+  if (targetCookieStoreId === tab.cookieStoreId) {
+    logger.debug('Already in target container:', targetCookieStoreId, 'url:', url);
+    return;
+  }
+
+  // Verify target container still exists before switching
+  try {
+    await browser.contextualIdentities.get(targetCookieStoreId);
+  } catch {
+    logger.error('Target container no longer exists:', targetCookieStoreId, 'for url:', url);
+    // Container was deleted - fall back to temp container
     try {
-      await browser.contextualIdentities.get(targetCookieStoreId);
-    } catch {
-      logger.error('Target container no longer exists:', targetCookieStoreId, 'for url:', url);
-      // Container was deleted - fall back to temp container
       const tempContainer = await createTempContainer();
       targetCookieStoreId = tempContainer.cookieStoreId;
-    }
-    logger.info('Switching container:', tab.cookieStoreId, '->', targetCookieStoreId, 'for:', url);
-    try {
-      await reopenInContainer(tab, targetCookieStoreId, url);
-      logger.info('Container switch completed for:', url);
     } catch (error) {
-      // Show visible notification on failure
-      browser.notifications.create({
-        type: 'basic',
-        title: 'Vessel: Container Switch Failed',
-        message: `Failed to switch to container for ${url}: ${error.message}`
-      });
+      logger.error('Failed to create fallback temp container:', error);
       throw error;
     }
-  } else {
-    logger.warn('Container switch skipped:', { targetCookieStoreId, tabContainer: tab.cookieStoreId, url });
   }
+
+  logger.debug('Switching container:', tab.cookieStoreId, '->', targetCookieStoreId, 'for:', url);
+  await reopenInContainer(tab, targetCookieStoreId, url);
 }

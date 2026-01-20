@@ -88,26 +88,9 @@
       </div>
     </header>
 
-    <div class="search-bar">
-      <input type="text" id="searchFilter" placeholder="Filter containers...">
-      <button class="search-icon-btn" title="Search">
-        <svg viewBox="0 0 24 24">
-          <circle cx="11" cy="11" r="8"/>
-          <path d="M21 21l-4.35-4.35"/>
-        </svg>
-      </button>
-    </div>
-
-    <div class="container-list" id="containerList">
-      <div class="empty-state">No containers</div>
-    </div>
-
-    <div class="new-container">
-      <div class="add-form">
-        <input type="text" id="newContainerName" placeholder="New container name">
-        <button id="createContainerBtn">+</button>
-      </div>
-    </div>
+    <div id="searchBarContainer"></div>
+    <div id="containerListContainer"></div>
+    <div id="newContainerContainer"></div>
   </div>
 
   <!-- Settings View -->
@@ -133,34 +116,7 @@
         </button>
       </div>
     </header>
-    <div class="settings-section">
-      <div class="settings-section-title">Subdomain Handling</div>
-      <div class="setting-row">
-        <span class="setting-label">Include subdomains (global)</span>
-        <div class="toggle-3" id="globalSubdomainsToggle">
-          <button data-value="false">Off</button>
-          <button data-value="ask">Ask</button>
-          <button data-value="true">On</button>
-        </div>
-      </div>
-      <div class="setting-row">
-        <span class="setting-label">Treat www as parent domain</span>
-        <div class="toggle-2" id="stripWwwToggle">
-          <button data-value="true">On</button>
-          <button data-value="false">Off</button>
-        </div>
-      </div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-section-title">Blending</div>
-      <div class="setting-row">
-        <span class="setting-label">Show blend warnings</span>
-        <div class="toggle-2" id="blendWarningsToggle">
-          <button data-value="true">On</button>
-          <button data-value="false">Off</button>
-        </div>
-      </div>
-    </div>
+    <div class="settings-content"></div>
   </div>
 
   <!-- Detail View (Container details) -->
@@ -169,39 +125,7 @@
       <button class="back-btn" id="backBtn">←</button>
       <h1 id="detailTitle">Container</h1>
     </header>
-    <div class="setting-row">
-      <span class="setting-label">Subdomains default</span>
-      <div class="toggle-4" id="containerSubdomainsToggle">
-        <button data-value="null">Inherit</button>
-        <button data-value="false">Off</button>
-        <button data-value="ask">Ask</button>
-        <button data-value="true">On</button>
-      </div>
-    </div>
-    <div class="add-form">
-      <input type="text" id="newDomain" placeholder="Add domain (e.g. example.com)">
-      <button id="addDomainBtn">+</button>
-    </div>
-    <div class="domain-list" id="domainList">
-      <div class="empty-state">No domains</div>
-    </div>
-    <div class="section-header">Excluded Subdomains</div>
-    <div class="add-form">
-      <input type="text" id="newExclusion" placeholder="Add exclusion (e.g. sub.example.com)">
-      <button id="addExclusionBtn">+</button>
-    </div>
-    <div class="exclusion-list" id="exclusionList">
-      <div class="empty-state">No exclusions</div>
-    </div>
-    <div class="section-header">Blended Domains</div>
-    <div class="add-form">
-      <input type="text" id="newBlend" placeholder="Allow domain from another container">
-      <button id="addBlendBtn">+</button>
-    </div>
-    <div class="blend-list" id="blendList">
-      <div class="empty-state">No blended domains</div>
-    </div>
-    <button class="delete-container" id="deleteContainerBtn">Delete Container</button>
+    <div class="detail-content"></div>
   </div>
 
   <!-- Pending View -->
@@ -227,28 +151,11 @@
         </button>
       </div>
     </header>
-    <div class="pending-list" id="pendingList">
-      <div class="pending-empty">No pending requests for this tab</div>
-    </div>
+    <div id="pendingListContainer"></div>
   </div>
 
-  <!-- Blend warning dialog -->
-  <div id="blendWarningOverlay" class="overlay" style="display: none;">
-    <div class="dialog">
-      <h3>What is blending?</h3>
-      <p>Blending allows a domain that belongs to another container to also work in this container.</p>
-      <p>This is useful when a site loads resources from a domain you've assigned elsewhere (e.g., a CDN or login provider).</p>
-      <p class="warning-note">Use sparingly - blending reduces container isolation.</p>
-      <label class="checkbox-row">
-        <input type="checkbox" id="hideBlendWarning">
-        <span>Don't show this again</span>
-      </label>
-      <div class="dialog-actions">
-        <button id="blendWarningCancel" class="btn-secondary">Cancel</button>
-        <button id="blendWarningConfirm" class="btn-primary">Add Blend</button>
-      </div>
-    </div>
-  </div>
+  <!-- Blend warning dialog container -->
+  <div id="blendWarningContainer"></div>
 
   <script type="module" src="popup.js"></script>
 </body>

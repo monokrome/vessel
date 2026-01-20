@@ -43,6 +43,19 @@ function removeFromContainerArray(arrayName, cookieStoreId, domain) {
   }
 }
 
+/**
+ * Allow a domain for a tab - shared logic for ALLOW_DOMAIN and ALLOW_ONCE
+ */
+function allowDomainForTab(domain, tabId) {
+  const tabInfo = tabInfoCache.get(tabId);
+  if (tabInfo) {
+    setTempAllowedDomain(tempAllowedDomains, domain, tabInfo.cookieStoreId, tabId);
+  } else {
+    logger.warn('No tabInfo for tabId', tabId);
+  }
+  pendingTracker.allowDomain(tabId, domain);
+}
+
 const handlers = {
   [MESSAGE_TYPES.GET_STATE]: async function() {
     return state;
@@ -155,14 +168,7 @@ const handlers = {
     validateDomain(message.domain);
     validateTabId(message.tabId);
 
-    const tabInfo = tabInfoCache.get(message.tabId);
-    if (tabInfo) {
-      setTempAllowedDomain(tempAllowedDomains, message.domain, tabInfo.cookieStoreId, message.tabId);
-    } else {
-      logger.warn('No tabInfo for tabId', message.tabId);
-    }
-
-    pendingTracker.allowDomain(message.tabId, message.domain);
+    allowDomainForTab(message.domain, message.tabId);
 
     if (message.addRule && message.containerName) {
       const container = await getOrCreatePermanentContainer(message.containerName);
@@ -193,12 +199,7 @@ const handlers = {
   [MESSAGE_TYPES.ALLOW_ONCE]: async function(message) {
     validateDomain(message.domain);
     validateTabId(message.tabId);
-
-    const tabInfo = tabInfoCache.get(message.tabId);
-    if (tabInfo) {
-      setTempAllowedDomain(tempAllowedDomains, message.domain, tabInfo.cookieStoreId, message.tabId);
-    }
-    pendingTracker.allowDomain(message.tabId, message.domain);
+    allowDomainForTab(message.domain, message.tabId);
     return { success: true };
   },
 

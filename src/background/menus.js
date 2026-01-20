@@ -4,7 +4,8 @@
 
 import { extractDomain, findMatchingRule } from '../lib/domain.js';
 import { createTempContainer } from './containers.js';
-import { tempAllowedDomains, addTempBlend } from './requests.js';
+import { tempAllowedDomains } from './requests.js';
+import { addTempBlend } from './blends.js';
 import { state } from './state.js';
 import { setTempAllowedDomain } from '../lib/data-loading.js';
 import { getActiveTab } from '../lib/tab-utils.js';

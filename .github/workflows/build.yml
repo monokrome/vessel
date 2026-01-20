@@ -35,6 +35,9 @@ jobs:
       - name: Lint extension
         run: pnpm lint
 
+      - name: Check for duplicate code
+        run: pnpm analyze:duplicates
+
       - name: Build extension
         run: pnpm build
 

@@ -12,7 +12,9 @@
     "lint:webext": "web-ext lint --source-dir src",
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "analyze": "pnpm analyze:duplicates",
+    "analyze:duplicates": "jscpd src/ --min-tokens 50 --reporters console --ignore '**/ask/**' --threshold 2"
   },
   "repository": {
     "type": "git",
@@ -22,6 +24,7 @@
   "license": "MIT",
   "devDependencies": {
     "eslint": "^9.39.2",
+    "jscpd": "^4.0.5",
     "jsdom": "^27.3.0",
     "vitest": "^4.0.16",
     "web-ext": "^9.2.0"
