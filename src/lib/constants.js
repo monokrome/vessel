@@ -33,10 +33,14 @@ export const FIREFOX_DEFAULT_CONTAINER = 'firefox-default';
 
 // Timing constants (in milliseconds)
 export const TIMING = {
-  recentTabExpiry: 2000,      // How long to track recently created tabs
-  cleanupDebounce: 500,       // Debounce delay for container cleanup
-  requestTimeout: 45000,      // Block requests for max 45 seconds before auto-blocking
-  pendingRefreshInterval: 1000 // How often to refresh pending list in UI
+  recentTabExpiry: 2000,         // How long to track recently created tabs
+  cleanupDebounce: 500,          // Debounce delay for container cleanup
+  requestTimeout: 45000,         // Block requests for max 45 seconds before auto-blocking
+  pendingRefreshInterval: 1000,  // How often to refresh pending list in UI
+  blendCleanupDelay: 180000,     // 3 minutes - delay before cleaning up temp blends
+  canceledRequestCleanup: 2000,  // Time to track canceled requests before cleanup
+  badgeUpdateDebounce: 2000,     // Debounce delay for badge updates
+  slowOperationThreshold: 5      // Threshold in ms for logging slow operations
 };
 
 // Badge colors

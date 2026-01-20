@@ -4,15 +4,30 @@
 
 import { extractDomain, findMatchingRule, isSubdomainOf } from '../lib/domain.js';
 import { FIREFOX_DEFAULT_CONTAINER, TIMING, IGNORED_SCHEMES, IGNORED_URLS } from '../lib/constants.js';
+import { logger } from '../lib/logger.js';
 import { state } from './state.js';
 import { createTempContainer } from './containers.js';
 import { isTempBlended } from './requests.js';
+import { cleanupStaleMapEntries } from '../lib/map-utils.js';
+import { isInTempContainer } from '../lib/state-operations.js';
 
 // Track tabs we've just created to avoid re-processing them
-export const recentlyCreatedTabs = new Set();
+// Map: tabId → timestamp when added
+export const recentlyCreatedTabs = new Map();
 
 // Track tabs currently being moved to avoid race conditions
-export const tabsBeingMoved = new Set();
+// Map: tabId → timestamp when move started
+export const tabsBeingMoved = new Map();
+
+// Clean up stale entries periodically
+function cleanupStaleTabTracking() {
+  cleanupStaleMapEntries(recentlyCreatedTabs, TIMING.recentTabExpiry);
+  // Tabs being moved should complete quickly - clean up anything older than 30s
+  cleanupStaleMapEntries(tabsBeingMoved, 30000);
+}
+
+// Run cleanup every 10 seconds
+setInterval(cleanupStaleTabTracking, 10000);
 
 // New tab pages that can be safely closed when switching containers
 export const NEW_TAB_PAGES = new Set([
@@ -21,6 +36,11 @@ export const NEW_TAB_PAGES = new Set([
   'about:blank'
 ]);
 
+/**
+ * Check if URL should be ignored by container switching
+ * @param {string} url - URL to check
+ * @returns {boolean} True if URL should be ignored
+ */
 export function isIgnoredUrl(url) {
   if (!url) return true;
   return IGNORED_SCHEMES.some(scheme => url.startsWith(scheme)) ||
@@ -29,6 +49,9 @@ export function isIgnoredUrl(url) {
 
 /**
  * Check if a domain is blended into a container (permanent or temporary)
+ * @param {string} domain - Domain to check
+ * @param {string} cookieStoreId - Container ID
+ * @returns {boolean} True if domain is blended
  */
 function isDomainBlended(domain, cookieStoreId) {
   // Check temporary blends (for OAuth flows)
@@ -39,7 +62,7 @@ function isDomainBlended(domain, cookieStoreId) {
   // Check permanent blends
   const permanentBlends = state.containerBlends[cookieStoreId] || [];
   for (const blendedDomain of permanentBlends) {
-    if (domain === blendedDomain || domain.endsWith('.' + blendedDomain)) {
+    if (domain === blendedDomain || isSubdomainOf(domain, blendedDomain)) {
       return true;
     }
   }
@@ -49,7 +72,13 @@ function isDomainBlended(domain, cookieStoreId) {
 
 /**
  * Synchronously determine if a URL should open in a different container.
- * Returns { targetCookieStoreId, shouldAsk, askInfo } or null if no switch needed.
+ * @param {string} url - URL to check
+ * @param {string} currentCookieStoreId - Current container ID
+ * @returns {Object|null} Container decision or null if no switch needed
+ * @returns {string} return.targetCookieStoreId - Target container ID
+ * @returns {boolean} return.needsTempContainer - Whether to create temp container
+ * @returns {boolean} return.shouldAsk - Whether to prompt user
+ * @returns {Object} return.askInfo - Info for user prompt
  */
 export function getContainerForUrl(url, currentCookieStoreId) {
   if (isIgnoredUrl(url)) return null;
@@ -59,9 +88,9 @@ export function getContainerForUrl(url, currentCookieStoreId) {
 
   // Safety check: if state isn't initialized yet, default to temp container
   if (!state || !state.domainRules || !state.tempContainers) {
-    console.error('Vessel state not loaded when processing:', domain, 'from container:', currentCookieStoreId);
+    logger.error('Vessel state not loaded when processing:', domain, 'from container:', currentCookieStoreId);
     if (currentCookieStoreId === FIREFOX_DEFAULT_CONTAINER) {
-      console.log('Creating temp container as fallback for:', domain);
+      logger.warn('Creating temp container as fallback for:', domain);
       return { needsTempContainer: true };
     }
     return null;
@@ -73,7 +102,7 @@ export function getContainerForUrl(url, currentCookieStoreId) {
   }
 
   const isInPermanentContainer = currentCookieStoreId !== FIREFOX_DEFAULT_CONTAINER &&
-    !state.tempContainers.includes(currentCookieStoreId);
+    !isInTempContainer(currentCookieStoreId, state);
 
   // Check for matching rule
   const rule = findMatchingRule(domain, state);
@@ -139,7 +168,7 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
   if (isIgnoredUrl(targetUrl)) return;
 
   // Mark tab as being moved to prevent race conditions
-  tabsBeingMoved.add(tab.id);
+  tabsBeingMoved.set(tab.id, Date.now());
 
   // For pinned tabs, never close them - just open a new unpinned tab
   const keepOriginalTab = tab.pinned;
@@ -156,16 +185,22 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
     });
 
     // Mark new tab so we don't re-process it
-    recentlyCreatedTabs.add(newTab.id);
-    setTimeout(() => recentlyCreatedTabs.delete(newTab.id), TIMING.recentTabExpiry);
+    recentlyCreatedTabs.set(newTab.id, Date.now());
 
     // Navigate after creation so Firefox's HTTPS-Only mode applies
     await browser.tabs.update(newTab.id, { url: targetUrl });
 
     // Only remove the old tab if it's not pinned
     if (!keepOriginalTab) {
-      await browser.tabs.remove(tab.id);
+      try {
+        await browser.tabs.remove(tab.id);
+      } catch {
+        // Tab might already be closed - this is fine
+      }
     }
+  } catch (error) {
+    logger.error('Failed to reopen tab in container:', error, 'tab:', tab.id, 'url:', targetUrl);
+    throw error;
   } finally {
     tabsBeingMoved.delete(tab.id);
   }
@@ -176,30 +211,29 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
  * Called directly from webRequest handler (matching Mozilla Multi-Account Containers pattern).
  */
 export async function handleMainFrameSwitch(tabId, url, containerInfo) {
+  logger.info('handleMainFrameSwitch called:', { tabId, url, containerInfo });
+
   let tab;
   try {
     tab = await browser.tabs.get(tabId);
-  } catch {
-    return; // Tab already closed
-  }
-
-  if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
+    logger.info('Got tab:', { id: tab.id, cookieStoreId: tab.cookieStoreId, url: tab.url });
+  } catch (error) {
+    logger.warn('Tab already closed:', tabId, error);
     return;
   }
 
-  // Safety check: only modify tabs that are blank/new or are navigating to the target URL
-  // This prevents accidentally modifying the wrong tab (e.g., the opener tab on CTRL+click)
-  const tabUrl = tab.url || '';
-  const isBlankTab = NEW_TAB_PAGES.has(tabUrl) || tabUrl === '' || tabUrl === 'about:blank';
-  const isNavigatingToTarget = tabUrl === url;
+  if (recentlyCreatedTabs.has(tabId)) {
+    logger.info('Tab in recentlyCreatedTabs, skipping:', tabId);
+    return;
+  }
 
-  // If the tab already has different content, don't modify it
-  // This is a safety check for race conditions with CTRL+click
-  if (!isBlankTab && !isNavigatingToTarget) {
+  if (tabsBeingMoved.has(tabId)) {
+    logger.info('Tab in tabsBeingMoved, skipping:', tabId);
     return;
   }
 
   let targetCookieStoreId = containerInfo.targetCookieStoreId;
+  logger.info('Initial targetCookieStoreId:', targetCookieStoreId);
 
   // Create temp container if needed
   if (containerInfo.needsTempContainer) {
@@ -222,6 +256,19 @@ export async function handleMainFrameSwitch(tabId, url, containerInfo) {
 
   // Switch to target container
   if (targetCookieStoreId && targetCookieStoreId !== tab.cookieStoreId) {
+    // Verify target container still exists before switching
+    try {
+      await browser.contextualIdentities.get(targetCookieStoreId);
+    } catch {
+      logger.error('Target container no longer exists:', targetCookieStoreId, 'for url:', url);
+      // Container was deleted - fall back to temp container
+      const tempContainer = await createTempContainer();
+      targetCookieStoreId = tempContainer.cookieStoreId;
+    }
+    logger.info('Switching container:', tab.cookieStoreId, '->', targetCookieStoreId, 'for:', url);
     await reopenInContainer(tab, targetCookieStoreId, url);
+    logger.info('Container switch completed for:', url);
+  } else {
+    logger.warn('Container switch skipped:', { targetCookieStoreId, tabContainer: tab.cookieStoreId, url });
   }
 }

@@ -3,11 +3,13 @@
  */
 
 import { logger } from '../lib/logger.js';
-import { extractDomain, shouldBlockRequest } from '../lib/domain.js';
+import { extractDomain, shouldBlockRequest, isSubdomainOf } from '../lib/domain.js';
 import { createPendingTracker } from '../lib/pending.js';
 import { TIMING, BADGE_COLORS, IGNORED_SCHEMES } from '../lib/constants.js';
-import { state, saveState } from './state.js';
+import { state, saveState, stateLoadedPromise } from './state.js';
 import { cleanupEmptyTempContainers } from './containers.js';
+import { cleanupStaleMapEntries } from '../lib/map-utils.js';
+import { isInTempContainer, removeTempContainer } from '../lib/state-operations.js';
 import {
   recentlyCreatedTabs,
   tabsBeingMoved,
@@ -18,16 +20,22 @@ import {
 // Cache for tab info to avoid async lookups in blocking handler
 export const tabInfoCache = new Map();
 
-// Temporary domain allowances: domain → { cookieStoreId, tabId }
+// Temporary domain allowances: domain → { cookieStoreId, tabId, timestamp }
 export const tempAllowedDomains = new Map();
+
+// Clean up temp allowed domains older than 5 minutes
+function cleanupStaleAllowedDomains() {
+  const TTL = 5 * 60 * 1000; // 5 minutes
+  cleanupStaleMapEntries(tempAllowedDomains, TTL);
+}
+
+// Run cleanup every minute
+setInterval(cleanupStaleAllowedDomains, 60000);
 
 // Temporary container blends for OAuth flows
 // Map: originCookieStoreId → Map<domain, targetCookieStoreId>
-// Cleaned up 3 minutes after BOTH origin and target containers have no tabs
+// Cleaned up after BOTH origin and target containers have no tabs
 export const tempContainerBlends = new Map();
-
-// Time (ms) to wait after both containers are empty before cleaning up blend
-const BLEND_CLEANUP_DELAY = 3 * 60 * 1000; // 3 minutes
 
 // Pending cleanup timers: blendKey → timerId
 const blendCleanupTimers = new Map();
@@ -67,7 +75,7 @@ export function isTempBlended(domain, cookieStoreId) {
 
   // Check if domain is a subdomain of a blended domain
   for (const blendedDomain of blends.keys()) {
-    if (domain.endsWith('.' + blendedDomain)) return true;
+    if (isSubdomainOf(domain, blendedDomain)) return true;
   }
   return false;
 }
@@ -105,7 +113,7 @@ async function scheduleBlendCleanup() {
               tempContainerBlends.delete(originCookieStoreId);
             }
           }
-        }, BLEND_CLEANUP_DELAY);
+        }, TIMING.blendCleanupDelay);
         blendCleanupTimers.set(blendKey, timerId);
       }
     }
@@ -190,6 +198,7 @@ async function updateTabCache(tabId, pendingTracker, isRealNavigation = false) {
       url: tab.url
     });
   } catch {
+    // Tab was closed or doesn't exist - clean up cache
     tabInfoCache.delete(tabId);
     pendingTracker.clearPendingDomainsForTab(tabId);
   }
@@ -197,12 +206,16 @@ async function updateTabCache(tabId, pendingTracker, isRealNavigation = false) {
 
 function isThirdParty(requestDomain, tabDomain) {
   if (requestDomain === tabDomain) return false;
-  if (requestDomain.endsWith('.' + tabDomain)) return false;
-  if (tabDomain.endsWith('.' + requestDomain)) return false;
+  if (isSubdomainOf(requestDomain, tabDomain)) return false;
+  if (isSubdomainOf(tabDomain, requestDomain)) return false;
   return true;
 }
 
-function handleMainFrameRequest(details) {
+async function handleMainFrameRequest(details) {
+  // CRITICAL: Wait for state to load before processing ANY requests
+  // Zero tolerance for requests bypassing container pipeline
+  await stateLoadedPromise;
+
   const tabId = details.tabId;
 
   if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
@@ -227,12 +240,12 @@ function handleMainFrameRequest(details) {
       urls: { [details.url]: true }
     };
 
-    // Clean up after 2 seconds
+    // Clean up after timeout
     setTimeout(() => {
       if (canceledRequests[tabId]) {
         delete canceledRequests[tabId];
       }
-    }, 2000);
+    }, TIMING.canceledRequestCleanup);
   } else {
     // Check if this is a duplicate request (e.g., from a redirect)
     if (canceledRequests[tabId].requestIds[details.requestId] ||
@@ -245,12 +258,19 @@ function handleMainFrameRequest(details) {
 
   // Handle container switch directly (not via setTimeout)
   // This matches Mozilla Multi-Account Containers pattern
-  handleMainFrameSwitch(tabId, details.url, containerInfo);
+  // Note: Not awaited intentionally, but errors must be caught
+  handleMainFrameSwitch(tabId, details.url, containerInfo).catch(error => {
+    logger.error('Container switch failed:', error, 'url:', details.url, 'container:', details.cookieStoreId);
+  });
 
   return { cancel: true };
 }
 
-function handleSubRequest(details, pendingTracker) {
+async function handleSubRequest(details, pendingTracker) {
+  // CRITICAL: Wait for state to load before processing ANY requests
+  // Zero tolerance for requests bypassing container pipeline
+  await stateLoadedPromise;
+
   const startTime = performance.now();
 
   if (PASSTHROUGH_REQUEST_TYPES.has(details.type)) {
@@ -288,7 +308,7 @@ function handleSubRequest(details, pendingTracker) {
   // Check if request domain is a subdomain of an allowed domain
   for (const [allowedDomain, allowInfo] of tempAllowedDomains) {
     if (allowInfo.cookieStoreId === tabInfo.cookieStoreId &&
-        requestDomain.endsWith('.' + allowedDomain)) {
+        isSubdomainOf(requestDomain, allowedDomain)) {
       logger.debug('Allowing', requestDomain, '- subdomain of', allowedDomain);
       return {};
     }
@@ -321,7 +341,7 @@ function pauseRequest(details, requestDomain, blockResult, pendingTracker, start
   const tabId = details.tabId;
   const syncTime = performance.now() - startTime;
 
-  if (syncTime > 5) {
+  if (syncTime > TIMING.slowOperationThreshold) {
     logger.warn(`Slow sync handler: ${syncTime.toFixed(1)}ms for ${requestDomain}`);
   }
 
@@ -330,7 +350,7 @@ function pauseRequest(details, requestDomain, blockResult, pendingTracker, start
       const trackerStart = performance.now();
       pendingTracker.addPendingDecision(tabId, requestDomain, resolve);
       const trackerTime = performance.now() - trackerStart;
-      if (trackerTime > 5) {
+      if (trackerTime > TIMING.slowOperationThreshold) {
         logger.warn(`Slow addPendingDecision: ${trackerTime.toFixed(1)}ms for ${requestDomain}`);
       }
     });
@@ -346,7 +366,7 @@ function createDebouncedBadgeUpdate(getTracker) {
     badgeUpdateTimeouts.set(key, setTimeout(() => {
       badgeUpdateTimeouts.delete(key);
       updatePageActionBadge(tabId, getTracker());
-    }, 2000));
+    }, TIMING.badgeUpdateDebounce));
   };
 }
 
@@ -379,6 +399,13 @@ function setupTabListeners(pendingTracker) {
       }
     }
 
+    // Clean up badge update timeout for this tab
+    const badgeKey = tabId;
+    if (badgeUpdateTimeouts.has(badgeKey)) {
+      clearTimeout(badgeUpdateTimeouts.get(badgeKey));
+      badgeUpdateTimeouts.delete(badgeKey);
+    }
+
     setTimeout(cleanupEmptyTempContainers, TIMING.cleanupDebounce);
 
     // Check if any temp blends should be cleaned up
@@ -387,8 +414,8 @@ function setupTabListeners(pendingTracker) {
 
   browser.contextualIdentities.onRemoved.addListener(async (changeInfo) => {
     const cookieStoreId = changeInfo.contextualIdentity.cookieStoreId;
-    if (state.tempContainers.includes(cookieStoreId)) {
-      state.tempContainers = state.tempContainers.filter(id => id !== cookieStoreId);
+    if (isInTempContainer(cookieStoreId, state)) {
+      removeTempContainer(cookieStoreId, state);
       await saveState();
     }
   });

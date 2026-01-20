@@ -3,16 +3,48 @@ import { setSafeHTML } from '../lib/safe-html.js';
 import { escapeHtml, escapeAttr, getContainerColor } from '../lib/ui-shared.js';
 import { DEFAULT_CONTAINER } from '../lib/constants.js';
 import { findMatchingRule, getParentDomain } from '../lib/domain.js';
+import { loadStateAndContainers, loadState } from '../lib/data-loading.js';
+import { createBlendState } from '../lib/blend-state.js';
+import { getActiveTab } from '../lib/tab-utils.js';
+import { showOverlay, hideOverlay } from '../lib/overlay-utils.js';
+import { isInTempContainer } from '../lib/state-operations.js';
 
 let currentDomain = null;
 let currentTab = null;
 let state = null;
 let containers = [];
 let pendingRequests = [];
-let pendingBlendDomain = null;
-let pendingBlendRuleDomain = null;
 // Track selected domain level per pending domain (default: full domain)
 const selectedDomainLevels = new Map();
+
+// Blend state manager
+const blendState = createBlendState();
+
+// Cached DOM elements
+const el = {
+  errorMessage: document.getElementById('errorMessage'),
+  domain: document.getElementById('domain'),
+  containerList: document.getElementById('containerList'),
+  currentContainer: document.getElementById('currentContainer'),
+  pendingSection: document.getElementById('pendingSection'),
+  pendingList: document.getElementById('pendingList'),
+  createContainerBtn: document.getElementById('createContainerBtn'),
+  newContainerName: document.getElementById('newContainerName'),
+  confirmDomain: document.getElementById('confirmDomain'),
+  confirmMessage: document.getElementById('confirmMessage'),
+  confirmDontShowAgain: document.getElementById('confirmDontShowAgain'),
+  confirmOverlay: document.getElementById('confirmOverlay'),
+  confirmCancel: document.getElementById('confirmCancel'),
+  confirmBlend: document.getElementById('confirmBlend')
+};
+
+function showError(message, duration = 3000) {
+  el.errorMessage.textContent = message;
+  el.errorMessage.classList.add('visible');
+  setTimeout(() => {
+    el.errorMessage.classList.remove('visible');
+  }, duration);
+}
 
 /**
  * Get all selectable domain levels for a domain.
@@ -64,11 +96,10 @@ function renderSelectableDomain(domain) {
 }
 
 async function init() {
-  const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-  currentTab = tabs[0];
+  currentTab = await getActiveTab();
 
   if (!currentTab || !currentTab.url) {
-    document.getElementById('domain').textContent = 'No domain';
+    el.domain.textContent = 'No domain';
     return;
   }
 
@@ -77,14 +108,15 @@ async function init() {
     currentDomain = url.hostname;
   } catch (error) {
     logger.warn('Failed to parse URL:', error);
-    document.getElementById('domain').textContent = 'Invalid URL';
+    el.domain.textContent = 'Invalid URL';
     return;
   }
 
-  document.getElementById('domain').textContent = currentDomain;
+  el.domain.textContent = currentDomain;
 
-  state = await browser.runtime.sendMessage({ type: 'getState' });
-  containers = await browser.runtime.sendMessage({ type: 'getContainers' });
+  const data = await loadStateAndContainers();
+  state = data.state;
+  containers = data.containers;
 
   const existingRule = state.domainRules[currentDomain];
   const isInContainer = currentTab.cookieStoreId !== 'firefox-default';
@@ -93,11 +125,11 @@ async function init() {
     // Hide container picker and header when already in a container
     // (container name visible above popup, domain visible in URL bar)
     document.querySelector('.header').style.display = 'none';
-    document.getElementById('containerList').style.display = 'none';
+    el.containerList.style.display = 'none';
     document.querySelector('.new-container').style.display = 'none';
   } else {
     if (existingRule) {
-      document.getElementById('currentContainer').textContent =
+      el.currentContainer.textContent =
         `Currently: ${existingRule.containerName}`;
     }
     renderContainerList();
@@ -116,8 +148,8 @@ async function loadPendingRequests() {
 }
 
 function renderPendingList() {
-  const section = document.getElementById('pendingSection');
-  const list = document.getElementById('pendingList');
+  const section = el.pendingSection;
+  const list = el.pendingList;
 
   if (pendingRequests.length === 0) {
     section.style.display = 'none';
@@ -153,7 +185,7 @@ function renderPendingList() {
 }
 
 function renderContainerList() {
-  const list = document.getElementById('containerList');
+  const list = el.containerList;
 
   if (containers.length === 0) {
     setSafeHTML(list, '<div class="empty-state">No containers yet</div>');
@@ -177,7 +209,7 @@ function renderContainerList() {
 }
 
 // Event: Click container to assign domain
-document.getElementById('containerList').addEventListener('click', async (e) => {
+el.containerList.addEventListener('click', async (e) => {
   const item = e.target.closest('.container-item');
   if (!item || !currentDomain) return;
 
@@ -198,22 +230,22 @@ document.getElementById('containerList').addEventListener('click', async (e) => 
     });
   }
 
-  state = await browser.runtime.sendMessage({ type: 'getState' });
+  state = await loadState();
 
   const newRule = state.domainRules[currentDomain];
   if (newRule) {
-    document.getElementById('currentContainer').textContent =
+    el.currentContainer.textContent =
       `Currently: ${newRule.containerName}`;
   } else {
-    document.getElementById('currentContainer').textContent = '';
+    el.currentContainer.textContent = '';
   }
 
   renderContainerList();
 });
 
 // Event: Create new container and assign domain
-document.getElementById('createContainerBtn').addEventListener('click', async () => {
-  const input = document.getElementById('newContainerName');
+el.createContainerBtn.addEventListener('click', async () => {
+  const input = el.newContainerName;
   const name = input.value.trim();
   if (!name || !currentDomain) return;
 
@@ -230,19 +262,20 @@ document.getElementById('createContainerBtn').addEventListener('click', async ()
   });
 
   input.value = '';
-  state = await browser.runtime.sendMessage({ type: 'getState' });
-  containers = await browser.runtime.sendMessage({ type: 'getContainers' });
+  const data = await loadStateAndContainers();
+  state = data.state;
+  containers = data.containers;
 
-  document.getElementById('currentContainer').textContent = `Currently: ${name}`;
+  el.currentContainer.textContent = `Currently: ${name}`;
   renderContainerList();
 });
 
-document.getElementById('newContainerName').addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') document.getElementById('createContainerBtn').click();
+el.newContainerName.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') el.createContainerBtn.click();
 });
 
 // Event: Handle pending request actions and domain level selection
-document.getElementById('pendingList').addEventListener('click', async (e) => {
+el.pendingList.addEventListener('click', async (e) => {
   // Handle domain part clicks for level selection
   const domainPart = e.target.closest('.domain-part');
   if (domainPart) {
@@ -270,8 +303,8 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
   let containerName = existingRule?.containerName;
   if (!containerName) {
     // Only use current container if it's not a temp container
-    const isInTempContainer = state.tempContainers.includes(currentTab.cookieStoreId);
-    if (!isInTempContainer) {
+    const isTempContainer = isInTempContainer(currentTab.cookieStoreId, state);
+    if (!isTempContainer) {
       const currentContainer = containers.find(c => c.cookieStoreId === currentTab.cookieStoreId);
       containerName = currentContainer?.name;
     }
@@ -279,8 +312,7 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
 
   if (action === 'allow') {
     if (!containerName) {
-      // Show error or container picker - for now, just allow once
-      window.alert('No container selected. Please navigate to a page with a container rule, or create a rule first.');
+      showError('No container selected. Please navigate to a page with a container rule, or create a rule first.');
       return;
     }
 
@@ -308,13 +340,12 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     const sourceContainerName = domainRule?.containerName || 'another container';
     const targetContainerName = currentContainerRule?.containerName || 'this container';
 
-    pendingBlendDomain = domain;
-    pendingBlendRuleDomain = blendDomain;
-    document.getElementById('confirmDomain').textContent = blendDomain;
-    document.getElementById('confirmMessage').textContent =
+    blendState.set(domain, blendDomain);
+    el.confirmDomain.textContent = blendDomain;
+    el.confirmMessage.textContent =
       `This domain belongs to the ${sourceContainerName} container. Blending into ${targetContainerName} allows cross-container requests from ${sourceContainerName} to ${targetContainerName} which could be used to track or otherwise undermine your privacy. Only do this if it is absolutely necessary.`;
-    document.getElementById('confirmDontShowAgain').checked = false;
-    document.getElementById('confirmOverlay').classList.add('active');
+    el.confirmDontShowAgain.checked = false;
+    showOverlay(el.confirmOverlay);
     return;
   } else if (action === 'once') {
     await browser.runtime.sendMessage({
@@ -332,7 +363,7 @@ document.getElementById('pendingList').addEventListener('click', async (e) => {
     });
   }
 
-  state = await browser.runtime.sendMessage({ type: 'getState' });
+  state = await loadState();
   await loadPendingRequests();
 });
 
@@ -352,23 +383,22 @@ async function performBlend(requestDomain, ruleDomain) {
 }
 
 // Event: Cancel blend confirmation
-document.getElementById('confirmCancel').addEventListener('click', () => {
-  pendingBlendDomain = null;
-  pendingBlendRuleDomain = null;
-  document.getElementById('confirmOverlay').classList.remove('active');
+el.confirmCancel.addEventListener('click', () => {
+  blendState.clear();
+  hideOverlay(el.confirmOverlay);
 });
 
 // Event: Confirm blend
-document.getElementById('confirmBlend').addEventListener('click', async () => {
-  if (!pendingBlendDomain) return;
+el.confirmBlend.addEventListener('click', async () => {
+  const blend = blendState.get();
+  if (!blend.domain) return;
 
-  const requestDomain = pendingBlendDomain;
-  const ruleDomain = pendingBlendRuleDomain;
-  const dontShowAgain = document.getElementById('confirmDontShowAgain').checked;
+  const requestDomain = blend.domain;
+  const ruleDomain = blend.ruleDomain;
+  const dontShowAgain = el.confirmDontShowAgain.checked;
 
-  pendingBlendDomain = null;
-  pendingBlendRuleDomain = null;
-  document.getElementById('confirmOverlay').classList.remove('active');
+  blendState.clear();
+  hideOverlay(el.confirmOverlay);
 
   if (dontShowAgain) {
     await browser.runtime.sendMessage({
@@ -379,16 +409,15 @@ document.getElementById('confirmBlend').addEventListener('click', async () => {
 
   await performBlend(requestDomain, ruleDomain);
 
-  state = await browser.runtime.sendMessage({ type: 'getState' });
+  state = await loadState();
   await loadPendingRequests();
 });
 
 // Event: Click overlay to cancel
-document.getElementById('confirmOverlay').addEventListener('click', (e) => {
+el.confirmOverlay.addEventListener('click', (e) => {
   if (e.target === e.currentTarget) {
-    pendingBlendDomain = null;
-    pendingBlendRuleDomain = null;
-    document.getElementById('confirmOverlay').classList.remove('active');
+    blendState.clear();
+    hideOverlay(el.confirmOverlay);
   }
 });
 

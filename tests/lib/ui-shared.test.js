@@ -17,9 +17,7 @@ import {
   renderDomainList,
   renderExclusionList,
   renderBlendList,
-  createRenameInput,
-  addToStateArray,
-  removeFromStateArray
+  createRenameInput
 } from '../../src/lib/ui-shared.js';
 import { CONTAINER_COLORS } from '../../src/lib/constants.js';
 
@@ -595,56 +593,5 @@ describe('createRenameInput', () => {
     await new Promise(resolve => setTimeout(resolve, 10));
 
     expect(onSave).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('addToStateArray', () => {
-  it('creates array if missing and adds value', () => {
-    const obj = {};
-    const result = addToStateArray(obj, 'items', 'value1');
-
-    expect(result).toBe(true);
-    expect(obj.items).toEqual(['value1']);
-  });
-
-  it('adds value to existing array', () => {
-    const obj = { items: ['existing'] };
-    const result = addToStateArray(obj, 'items', 'new');
-
-    expect(result).toBe(true);
-    expect(obj.items).toEqual(['existing', 'new']);
-  });
-
-  it('returns false and does not duplicate existing value', () => {
-    const obj = { items: ['existing'] };
-    const result = addToStateArray(obj, 'items', 'existing');
-
-    expect(result).toBe(false);
-    expect(obj.items).toEqual(['existing']);
-  });
-});
-
-describe('removeFromStateArray', () => {
-  it('removes value from array', () => {
-    const obj = { items: ['a', 'b', 'c'] };
-    const result = removeFromStateArray(obj, 'items', 'b');
-
-    expect(result).toBe(true);
-    expect(obj.items).toEqual(['a', 'c']);
-  });
-
-  it('returns false when key does not exist', () => {
-    const obj = {};
-    const result = removeFromStateArray(obj, 'items', 'value');
-
-    expect(result).toBe(false);
-  });
-
-  it('handles removing non-existent value', () => {
-    const obj = { items: ['a', 'b'] };
-    const result = removeFromStateArray(obj, 'items', 'c');
-
-    expect(result).toBe(true);
-    expect(obj.items).toEqual(['a', 'b']);
   });
 });

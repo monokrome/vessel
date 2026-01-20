@@ -64,13 +64,3 @@ export const STRINGS = {
   errorInvalidUrl: 'Invalid URL',
   errorNoDomain: 'No domain',
 };
-
-/**
- * Simple string interpolation
- * Usage: interpolate(STRINGS.blendFromContainer, { container: 'Work' })
- */
-export function interpolate(template, values) {
-  return template.replace(/\{(\w+)\}/g, (match, key) => {
-    return values[key] !== undefined ? values[key] : match;
-  });
-}
