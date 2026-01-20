@@ -44,11 +44,32 @@ export async function getOrCreatePermanentContainer(name) {
 }
 
 export async function cleanupEmptyTempContainers() {
-  const tabs = await browser.tabs.query({});
+  let tabs;
+  try {
+    tabs = await browser.tabs.query({});
+  } catch (error) {
+    logger.error('Failed to query tabs during cleanup:', error);
+    return;
+  }
+
+  // Safety check: if no tabs found, something is wrong - don't clean up
+  // This prevents accidentally deleting all containers during startup edge cases
+  if (!tabs || tabs.length === 0) {
+    logger.warn('No tabs found during cleanup - skipping to prevent data loss');
+    return;
+  }
+
   const usedContainers = new Set(tabs.map(t => t.cookieStoreId));
 
   // Get all existing containers to validate our tracking
-  const allContainers = await browser.contextualIdentities.query({});
+  let allContainers;
+  try {
+    allContainers = await browser.contextualIdentities.query({});
+  } catch (error) {
+    logger.error('Failed to query containers during cleanup:', error);
+    return;
+  }
+
   const existingContainerIds = new Set(allContainers.map(c => c.cookieStoreId));
 
   // Remove stale IDs from our tracking (containers that no longer exist)
