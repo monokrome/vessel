@@ -188,12 +188,13 @@ async function handleMainFrameRequest(details) {
     canceledRequests[tabId].urls[details.url] = true;
   }
 
-  // Handle container switch directly (not via setTimeout)
-  // This matches Mozilla Multi-Account Containers pattern
-  // Note: Not awaited intentionally, but errors must be caught
-  handleMainFrameSwitch(tabId, details.url, containerInfo).catch(error => {
+  // Handle container switch directly and await completion
+  // This ensures the new tab is created and old tab removed before cancelling request
+  try {
+    await handleMainFrameSwitch(tabId, details.url, containerInfo);
+  } catch (error) {
     logger.error('Container switch failed:', error, 'url:', details.url, 'container:', cookieStoreId);
-  });
+  }
 
   return { cancel: true };
 }
