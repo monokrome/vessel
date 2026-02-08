@@ -346,10 +346,14 @@ function setupTabListeners(pendingTracker) {
   });
 
   browser.contextualIdentities.onRemoved.addListener(async (changeInfo) => {
-    const cookieStoreId = changeInfo.contextualIdentity.cookieStoreId;
+    const container = changeInfo.contextualIdentity;
+    const cookieStoreId = container.cookieStoreId;
+    logger.info('Container removed:', cookieStoreId, 'name:', container.name);
     if (isInTempContainer(cookieStoreId, state)) {
       removeTempContainer(cookieStoreId, state);
       await saveState();
+    } else {
+      logger.warn('Non-temp container removed:', cookieStoreId, 'name:', container.name);
     }
   });
 }

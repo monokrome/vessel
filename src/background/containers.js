@@ -5,7 +5,17 @@
 import { logger } from '../lib/logger.js';
 import { TEMP_CONTAINER, DEFAULT_CONTAINER } from '../lib/constants.js';
 import { state, saveState } from './state.js';
-import { isInTempContainer, filterValidTempContainers } from '../lib/state-operations.js';
+import { filterValidTempContainers } from '../lib/state-operations.js';
+
+// Prevent concurrent cleanup runs
+let cleanupInProgress = false;
+
+// Grace period after startup - don't clean up until session restore is likely complete
+let startupGraceActive = true;
+
+export function endStartupGrace() {
+  startupGraceActive = false;
+}
 
 export async function createTempContainer() {
   const container = await browser.contextualIdentities.create({
@@ -22,11 +32,24 @@ export async function createTempContainer() {
 
 export async function removeTempContainer(cookieStoreId) {
   try {
+    // Verify the container is actually a temp container before removing
+    const container = await browser.contextualIdentities.get(cookieStoreId);
+    if (container.name !== TEMP_CONTAINER.name) {
+      logger.error('SAFETY: Refusing to remove non-temp container:', cookieStoreId, 'name:', container.name);
+      state.tempContainers = state.tempContainers.filter(id => id !== cookieStoreId);
+      await saveState();
+      return;
+    }
+
+    logger.info('Removing temp container:', cookieStoreId);
     await browser.contextualIdentities.remove(cookieStoreId);
     state.tempContainers = state.tempContainers.filter(id => id !== cookieStoreId);
     await saveState();
   } catch (error) {
-    logger.error('Failed to remove temp container:', error);
+    logger.error('Failed to remove temp container:', cookieStoreId, error);
+    // Container may already be gone - clean up state regardless
+    state.tempContainers = state.tempContainers.filter(id => id !== cookieStoreId);
+    await saveState();
   }
 }
 
@@ -44,6 +67,27 @@ export async function getOrCreatePermanentContainer(name) {
 }
 
 export async function cleanupEmptyTempContainers() {
+  // Prevent concurrent cleanup runs
+  if (cleanupInProgress) {
+    logger.debug('Cleanup already in progress, skipping');
+    return;
+  }
+
+  // Don't clean up during startup grace period - session restore may be incomplete
+  if (startupGraceActive) {
+    logger.debug('Startup grace period active, deferring cleanup');
+    return;
+  }
+
+  cleanupInProgress = true;
+  try {
+    await performCleanup();
+  } finally {
+    cleanupInProgress = false;
+  }
+}
+
+async function performCleanup() {
   let tabs;
   try {
     tabs = await browser.tabs.query({});
@@ -53,7 +97,6 @@ export async function cleanupEmptyTempContainers() {
   }
 
   // Safety check: if no tabs found, something is wrong - don't clean up
-  // This prevents accidentally deleting all containers during startup edge cases
   if (!tabs || tabs.length === 0) {
     logger.warn('No tabs found during cleanup - skipping to prevent data loss');
     return;
@@ -70,42 +113,49 @@ export async function cleanupEmptyTempContainers() {
     return;
   }
 
-  const existingContainerIds = new Set(allContainers.map(c => c.cookieStoreId));
+  // Build a lookup of existing containers by ID for safety verification
+  const existingContainerMap = new Map(allContainers.map(c => [c.cookieStoreId, c]));
+  const existingContainerIds = new Set(existingContainerMap.keys());
 
   // Remove stale IDs from our tracking (containers that no longer exist)
   const hadStaleIds = state.tempContainers.some(id => !existingContainerIds.has(id));
   filterValidTempContainers(existingContainerIds, state);
-  const validTempContainers = state.tempContainers;
+
+  // Snapshot the list to avoid issues with concurrent state modifications
+  const tempContainerSnapshot = [...state.tempContainers];
 
   // Find temp containers to remove (not in use)
-  const containersToRemove = validTempContainers.filter(id => !usedContainers.has(id));
+  const containersToRemove = [];
+  for (const id of tempContainerSnapshot) {
+    if (usedContainers.has(id)) continue;
+
+    // SAFETY: Verify this is actually a temp container by checking its name
+    const container = existingContainerMap.get(id);
+    if (!container) continue;
+
+    if (container.name !== TEMP_CONTAINER.name) {
+      logger.error('SAFETY: Container', id, 'is in tempContainers but named', container.name, '- removing from tracking instead of deleting');
+      continue;
+    }
+
+    containersToRemove.push(id);
+  }
 
   // Remove unused temp containers
   for (const cookieStoreId of containersToRemove) {
     try {
+      logger.info('Cleanup: removing empty temp container:', cookieStoreId);
       await browser.contextualIdentities.remove(cookieStoreId);
     } catch {
       // Container may have been removed already
     }
   }
 
-  // Update state once with all remaining containers
-  state.tempContainers = validTempContainers.filter(id => !containersToRemove.includes(id));
+  // Update state with remaining containers
+  const removedSet = new Set(containersToRemove);
+  state.tempContainers = state.tempContainers.filter(id => !removedSet.has(id));
 
-  // Also clean up any orphaned temp containers not in our tracking
-  for (const container of allContainers) {
-    if (container.name === TEMP_CONTAINER.name &&
-        !usedContainers.has(container.cookieStoreId) &&
-        !isInTempContainer(container.cookieStoreId, state)) {
-      try {
-        await browser.contextualIdentities.remove(container.cookieStoreId);
-      } catch {
-        // Ignore errors for orphaned containers
-      }
-    }
-  }
-
-  // Save state only once at the end if anything changed
+  // Save state if anything changed
   if (hadStaleIds || containersToRemove.length > 0) {
     await saveState();
   }

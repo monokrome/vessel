@@ -9,7 +9,7 @@
 
 import { logger } from '../lib/logger.js';
 import { loadState } from './state.js';
-import { cleanupEmptyTempContainers } from './containers.js';
+import { cleanupEmptyTempContainers, endStartupGrace } from './containers.js';
 import { setupRequestHandlers, initializeTabCache } from './requests.js';
 import { setupMessageHandlers } from './messages.js';
 import { setupContextMenus, setupMenuListeners, setupMenuOnShown, setupKeyboardShortcuts } from './menus.js';
@@ -22,23 +22,47 @@ const pendingTracker = handlers.pendingTracker;
 // Setup message handlers immediately (they need the handlers object)
 setupMessageHandlers(handlers);
 
+// Guard against concurrent init() calls - queue re-init if one is already running
+let initInProgress = false;
+let initPending = false;
+
 async function init() {
-  logger.info('Vessel initializing...', new Date().toISOString());
+  if (initInProgress) {
+    logger.warn('init() already in progress, queuing re-init');
+    initPending = true;
+    return;
+  }
+  initInProgress = true;
+  initPending = false;
 
-  // Load state - request handlers will wait for this via stateLoadedPromise
-  await loadState();
-  await cleanupEmptyTempContainers();
+  try {
+    logger.info('Vessel initializing...', new Date().toISOString());
 
-  // Setup context menus and keyboard shortcuts
-  await setupContextMenus();
-  setupMenuListeners();
-  setupMenuOnShown();
-  setupKeyboardShortcuts();
+    // Load state - request handlers will wait for this via stateLoadedPromise
+    await loadState();
 
-  // Populate tab cache
-  await initializeTabCache(pendingTracker);
+    // Setup context menus and keyboard shortcuts
+    await setupContextMenus();
+    setupMenuListeners();
+    setupMenuOnShown();
+    setupKeyboardShortcuts();
 
-  logger.info('Vessel initialized', new Date().toISOString());
+    // Populate tab cache BEFORE cleanup so cleanup has accurate tab info
+    await initializeTabCache(pendingTracker);
+
+    // End startup grace period and run cleanup AFTER tab cache is populated
+    // This ensures session restore tabs are visible to cleanup
+    endStartupGrace();
+    await cleanupEmptyTempContainers();
+
+    logger.info('Vessel initialized', new Date().toISOString());
+  } finally {
+    initInProgress = false;
+    if (initPending) {
+      logger.info('Running queued re-init');
+      init().catch(err => logger.error('Queued re-init failed:', err));
+    }
+  }
 }
 
 // Listen for background script restarts
@@ -51,29 +75,6 @@ browser.runtime.onStartup.addListener(() => {
 browser.runtime.onInstalled.addListener(() => {
   logger.info('Extension installed/updated, initializing Vessel');
   init().catch(err => logger.error('Vessel initialization failed:', err));
-});
-
-// Detect if background script was suspended and reactivated
-// This can happen in Manifest V3 even with persistent:true
-if (typeof globalThis !== 'undefined' && globalThis.constructor.name === 'ServiceWorkerGlobalScope') {
-  logger.warn('Running as service worker (non-persistent background) - this may cause issues!');
-} else {
-  logger.info('Running as persistent background page');
-}
-
-// Generate a unique ID for this background script instance
-const INSTANCE_ID = `vessel-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-logger.info('Background script instance ID:', INSTANCE_ID);
-
-// Store instance ID to detect restarts
-browser.storage.local.set({ vesselInstanceId: INSTANCE_ID });
-
-// Check if we're a new instance (background script restarted)
-browser.storage.local.get('vesselLastInstanceId').then(result => {
-  if (result.vesselLastInstanceId && result.vesselLastInstanceId !== INSTANCE_ID) {
-    logger.warn('Background script restarted! Previous instance:', result.vesselLastInstanceId, 'New instance:', INSTANCE_ID);
-  }
-  browser.storage.local.set({ vesselLastInstanceId: INSTANCE_ID });
 });
 
 // Initial startup
