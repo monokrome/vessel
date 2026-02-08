@@ -19,6 +19,8 @@ export const state = {
   containerBlends: {},
   // domain → { cookieStoreId, containerName, subdomains: true/false/'ask'/null }
   domainRules: {},
+  // cookieStoreId → groupName
+  containerGroups: {},
   // Set of temp container cookieStoreIds we're managing
   tempContainers: [],
   // Pending prompts (legacy, keeping for compatibility)
@@ -40,6 +42,7 @@ const STATE_KEYS = [
   'containerExclusions',
   'containerBlends',
   'domainRules',
+  'containerGroups',
   'tempContainers'
 ];
 
@@ -69,6 +72,7 @@ export async function loadState() {
     state.containerExclusions = validateStateObject(stored.containerExclusions, 'containerExclusions');
     state.containerBlends = validateStateObject(stored.containerBlends, 'containerBlends');
     state.domainRules = validateStateObject(stored.domainRules, 'domainRules');
+    state.containerGroups = validateStateObject(stored.containerGroups, 'containerGroups');
     state.tempContainers = validateStateArray(stored.tempContainers, 'tempContainers');
 
     logger.info('Vessel state loaded:', Object.keys(state.domainRules).length, 'domain rules');
@@ -82,6 +86,7 @@ export async function loadState() {
     state.containerExclusions = {};
     state.containerBlends = {};
     state.domainRules = {};
+    state.containerGroups = {};
     state.tempContainers = [];
   } finally {
     // CRITICAL: Always resolve the promise, even if loading failed
@@ -99,6 +104,7 @@ export async function saveState() {
     containerExclusions: state.containerExclusions,
     containerBlends: state.containerBlends,
     domainRules: state.domainRules,
+    containerGroups: state.containerGroups,
     tempContainers: state.tempContainers
   });
 }

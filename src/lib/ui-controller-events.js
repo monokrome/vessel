@@ -15,6 +15,8 @@ export function createEventSetup(el, callbacks) {
     onBlendWarningsToggle,
     onContainerSubdomainsToggle,
     onCreateContainer,
+    onSetContainerGroup,
+    onAccordionToggle,
     onAddDomain,
     onRemoveDomain,
     onDomainSubdomainsToggle,
@@ -89,13 +91,11 @@ export function createEventSetup(el, callbacks) {
 
   function setupContainerCreationEvents() {
     el.createContainerBtn.addEventListener('click', async () => {
-      const name = el.newContainerName.value.trim();
+      const name = el.searchFilter.value.trim();
       if (!name) return;
       await onCreateContainer(name);
-      clearInput(el.newContainerName);
+      clearInput(el.searchFilter);
     });
-
-    setupEnterKeySubmit(el.newContainerName, el.createContainerBtn);
   }
 
   function setupDomainEvents() {
@@ -183,6 +183,22 @@ export function createEventSetup(el, callbacks) {
     });
   }
 
+  function setupGroupEvents() {
+    if (!el.containerGroup) return;
+    el.containerGroup.addEventListener('change', () => {
+      onSetContainerGroup(el.containerGroup.value.trim());
+    });
+  }
+
+  function setupAccordionEvents() {
+    el.containerList.addEventListener('click', (e) => {
+      const header = e.target.closest('.group-header');
+      if (!header) return;
+      e.stopPropagation();
+      onAccordionToggle(header.dataset.group);
+    });
+  }
+
   function setupPendingEvents() {
     el.pendingList.addEventListener('click', async (e) => {
       const domain = e.target.dataset.domain;
@@ -221,6 +237,8 @@ export function createEventSetup(el, callbacks) {
     setupBlendEvents();
     setupTabNavigationEvents();
     setupSearchEvents();
+    setupGroupEvents();
+    setupAccordionEvents();
     setupPendingEvents();
     setupTabListeners();
   }

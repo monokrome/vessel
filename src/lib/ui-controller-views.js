@@ -6,7 +6,9 @@ import { setSafeHTML } from './safe-html.js';
 import {
   escapeHtml,
   updateToggle,
-  renderContainerList,
+  getDomainsForContainer,
+  getExclusionsForContainer,
+  getContainerColor,
   renderDomainList,
   renderExclusionList,
   renderBlendList,
@@ -50,8 +52,72 @@ export function createViewManager(el, getState, getContainers, getCurrentTabCook
     }
   }
 
-  function renderFilteredContainerList(containers, state, filterFn) {
-    renderContainerList(containers, state, el.containerList, filterFn);
+  function renderContainerItem(container, state) {
+    const domains = getDomainsForContainer(state, container.cookieStoreId);
+    const color = getContainerColor(container.color);
+    return `
+      <div class="container-item" data-id="${container.cookieStoreId}">
+        <div class="container-icon" style="background: ${color}"></div>
+        <span class="container-name">${escapeHtml(container.name)}</span>
+        <span class="container-count">${domains.length}</span>
+      </div>`;
+  }
+
+  function renderFilteredContainerList(containers, state, filterFn, accordionState) {
+    let displayContainers = containers;
+
+    if (filterFn) {
+      displayContainers = containers.filter(container => {
+        const domains = getDomainsForContainer(state, container.cookieStoreId);
+        const exclusions = getExclusionsForContainer(state, container.cookieStoreId);
+        return filterFn(container, domains, exclusions);
+      });
+    }
+
+    if (displayContainers.length === 0) {
+      const message = filterFn ? 'No matching containers' : 'No containers';
+      setSafeHTML(el.containerList, `<div class="empty-state">${message}</div>`);
+      return;
+    }
+
+    const groups = state.containerGroups || {};
+    const grouped = new Map();
+    const ungrouped = [];
+
+    for (const container of displayContainers) {
+      const groupName = groups[container.cookieStoreId];
+      if (groupName) {
+        if (!grouped.has(groupName)) grouped.set(groupName, []);
+        grouped.get(groupName).push(container);
+      } else {
+        ungrouped.push(container);
+      }
+    }
+
+    const sortedGroups = [...grouped.keys()].sort();
+    let html = '';
+
+    for (const groupName of sortedGroups) {
+      const isFiltering = !!filterFn;
+      const isOpen = isFiltering || (accordionState?.get(groupName) ?? true);
+      const chevron = isOpen ? '&#9660;' : '&#9654;';
+      const collapsedClass = isOpen ? '' : ' collapsed';
+
+      html += `
+        <div class="group-accordion">
+          <div class="group-header" data-group="${escapeHtml(groupName)}">
+            <span class="group-chevron">${chevron}</span>
+            <span class="group-name">${escapeHtml(groupName)}</span>
+            <span class="group-count">${grouped.get(groupName).length}</span>
+          </div>
+          <div class="group-body${collapsedClass}">
+            ${grouped.get(groupName).map(c => renderContainerItem(c, state)).join('')}
+          </div>
+        </div>`;
+    }
+
+    html += ungrouped.map(c => renderContainerItem(c, state)).join('');
+    setSafeHTML(el.containerList, html);
   }
 
   function showDetailView(container, state, containers) {

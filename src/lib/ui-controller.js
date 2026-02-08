@@ -13,9 +13,8 @@ import { createBlendState } from './blend-state.js';
 import { getActiveTab } from './tab-utils.js';
 import { showOverlay, hideOverlay } from './overlay-utils.js';
 import {
-  createSearchBar,
+  createActionBar,
   createContainerList,
-  createNewContainerForm,
   createSettingsContent,
   createDetailViewContent,
   createPendingList,
@@ -45,6 +44,10 @@ export function createUIController(options = {}) {
   // Blend state manager
   const blendState = createBlendState();
 
+  // Accordion state: group name → boolean (true = open)
+  const accordionState = new Map();
+  let savedAccordionState = null;
+
   // DOM element cache
   const el = {};
 
@@ -57,9 +60,8 @@ export function createUIController(options = {}) {
       if (el) el.innerHTML = html;
     };
 
-    inject('searchBarContainer', createSearchBar());
     inject('containerListContainer', createContainerList());
-    inject('newContainerContainer', createNewContainerForm());
+    inject('actionBarContainer', createActionBar());
     inject('pendingListContainer', createPendingList());
     inject('blendWarningContainer', createBlendWarningDialog());
 
@@ -79,7 +81,7 @@ export function createUIController(options = {}) {
       'listView', 'detailView', 'settingsView', 'pendingView',
       'containerList', 'domainList', 'exclusionList', 'blendList', 'pendingList',
       'tabContainers', 'tabSettings', 'tabPending', 'pendingBadge',
-      'searchFilter', 'newContainerName', 'createContainerBtn',
+      'searchFilter', 'searchBtn', 'createContainerBtn', 'containerGroup',
       'newDomain', 'addDomainBtn', 'newExclusion', 'addExclusionBtn',
       'newBlend', 'addBlendBtn',
       'backBtn', 'detailTitle', 'deleteContainerBtn',
@@ -172,7 +174,7 @@ export function createUIController(options = {}) {
    * Render container list with current filter
    */
   function renderFilteredContainerList() {
-    viewManager.renderFilteredContainerList(containers, state, createFilterFn());
+    viewManager.renderFilteredContainerList(containers, state, createFilterFn(), accordionState);
   }
 
   const debouncedFilter = debounce(() => {
@@ -201,6 +203,20 @@ export function createUIController(options = {}) {
     viewManager.showDetailView(container, state, containers);
     viewManager.switchView('containers', container, views);
     activeView = 'containers';
+
+    if (el.containerGroup) {
+      el.containerGroup.value = state.containerGroups?.[container.cookieStoreId] || '';
+      const suggestions = document.getElementById('groupSuggestions');
+      if (suggestions) {
+        suggestions.textContent = '';
+        const groups = [...new Set(Object.values(state.containerGroups || {}))].sort();
+        for (const g of groups) {
+          const opt = document.createElement('option');
+          opt.value = g;
+          suggestions.appendChild(opt);
+        }
+      }
+    }
   }
 
   /**
@@ -304,6 +320,21 @@ export function createUIController(options = {}) {
         value
       });
       await refreshDetailView();
+    },
+
+    onSetContainerGroup: async (groupName) => {
+      if (!selectedContainer) return;
+      const type = groupName ? 'setContainerGroup' : 'removeContainerGroup';
+      const msg = { type, cookieStoreId: selectedContainer.cookieStoreId };
+      if (groupName) msg.groupName = groupName;
+      await browser.runtime.sendMessage(msg);
+      await loadData();
+    },
+
+    onAccordionToggle: (groupName) => {
+      const isOpen = accordionState.get(groupName) ?? true;
+      accordionState.set(groupName, !isOpen);
+      renderFilteredContainerList();
     },
 
     onCreateContainer: async (name) => {
@@ -419,7 +450,19 @@ export function createUIController(options = {}) {
     },
 
     onSearchInput: (value) => {
+      const wasEmpty = !searchQuery;
+      const isEmpty = !value;
       searchQuery = value;
+
+      if (!wasEmpty && isEmpty && savedAccordionState) {
+        for (const [key, val] of savedAccordionState) {
+          accordionState.set(key, val);
+        }
+        savedAccordionState = null;
+      } else if (wasEmpty && !isEmpty) {
+        savedAccordionState = new Map(accordionState);
+      }
+
       debouncedFilter();
     },
 

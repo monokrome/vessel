@@ -77,7 +77,7 @@ body.vessel-sidebar .tab-content {
 }
 
 header {
-  padding: 12px;
+  padding: 8px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
@@ -160,37 +160,48 @@ header h1 {
   fill: currentColor;
 }
 
-/* Search bar */
-.search-bar {
+/* Action bar (combined search + create) */
+.action-bar {
   display: flex;
-  padding: 8px 12px;
-  gap: 8px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-primary);
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
 
-.search-bar input {
+.action-bar input {
   flex: 1;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
+.action-bar input:focus {
+  border-color: transparent;
+}
+
+.action-bar-btn {
   padding: 6px 10px;
-}
-
-.search-bar input::placeholder {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  border-radius: 0;
   color: var(--text-secondary);
-}
-
-.search-icon-btn {
-  width: 30px;
-  height: 30px;
-  padding: 6px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.search-icon-btn svg {
-  width: 16px;
-  height: 16px;
+.action-bar-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.action-bar-btn svg {
+  width: 14px;
+  height: 14px;
   stroke: currentColor;
   fill: none;
   stroke-width: 2;
@@ -204,7 +215,7 @@ header h1 {
 }
 
 .settings-section {
-  padding: 16px 12px;
+  padding: 8px;
 }
 
 .settings-section-title {
@@ -212,15 +223,15 @@ header h1 {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .setting-row {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border-subtle);
-  gap: 10px;
+  gap: 8px;
 }
 
 .setting-label {
@@ -237,10 +248,10 @@ header h1 {
 .container-item {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
+  padding: 6px 8px;
   cursor: pointer;
   border-bottom: 1px solid var(--border-subtle);
-  gap: 10px;
+  gap: 8px;
 }
 
 .container-item:hover {
@@ -274,9 +285,9 @@ header h1 {
 .domain-item {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--border-subtle);
-  gap: 8px;
+  gap: 6px;
 }
 
 .domain-name {
@@ -302,8 +313,8 @@ header h1 {
 
 .add-form {
   display: flex;
-  padding: 12px;
-  gap: 8px;
+  padding: 4px 8px;
+  gap: 4px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -338,9 +349,9 @@ button:hover {
 }
 
 .delete-container {
-  margin: 12px;
+  margin: 8px;
   background: var(--danger);
-  width: calc(100% - 24px);
+  width: calc(100% - 16px);
 }
 
 .delete-container:hover {
@@ -351,12 +362,7 @@ button:hover {
   color: var(--text-secondary);
   font-style: italic;
   text-align: center;
-  padding: 20px 12px;
-}
-
-.new-container {
-  padding: 12px;
-  border-top: 1px solid var(--border-color);
+  padding: 12px 8px;
 }
 
 /* Toggle buttons */
@@ -439,7 +445,7 @@ button:hover {
 }
 
 .section-header {
-  padding: 8px 12px;
+  padding: 4px 8px;
   font-size: 11px;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -456,9 +462,9 @@ button:hover {
 .exclusion-item {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--border-subtle);
-  gap: 8px;
+  gap: 6px;
 }
 
 .exclusion-name {
@@ -546,7 +552,7 @@ button:hover {
 .pending-item {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border-subtle);
   gap: 8px;
 }
@@ -613,7 +619,7 @@ button:hover {
 }
 
 .pending-empty {
-  padding: 40px 12px;
+  padding: 20px 8px;
   color: var(--text-secondary);
   font-size: 12px;
   font-style: italic;
@@ -628,9 +634,9 @@ button:hover {
 .blend-item {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--border-subtle);
-  gap: 8px;
+  gap: 6px;
 }
 
 .blend-name {
@@ -719,4 +725,48 @@ button:hover {
 
 .btn-primary:hover {
   background: #6a9edf;
+}
+
+/* Container group accordions */
+.group-accordion {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  gap: 6px;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  user-select: none;
+}
+
+.group-header:hover {
+  background: var(--bg-hover);
+}
+
+.group-chevron {
+  font-size: 8px;
+  color: var(--text-secondary);
+  width: 10px;
+  text-align: center;
+}
+
+.group-name {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.group-count {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.group-body.collapsed {
+  display: none;
 }

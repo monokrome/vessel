@@ -10,11 +10,12 @@ export const ICONS = {
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>'
 };
 
-export function createSearchBar() {
+export function createActionBar() {
   return `
-    <div class="search-bar">
-      <input type="text" id="searchFilter" placeholder="Filter containers...">
-      <button class="search-icon-btn" title="Search">${ICONS.search}</button>
+    <div class="action-bar">
+      <input type="text" id="searchFilter" placeholder="Filter or create...">
+      <button class="action-bar-btn" id="searchBtn" title="Search">${ICONS.search}</button>
+      <button class="action-bar-btn" id="createContainerBtn" title="New container">+</button>
     </div>`;
 }
 
@@ -25,15 +26,6 @@ export function createContainerList() {
     </div>`;
 }
 
-export function createNewContainerForm() {
-  return `
-    <div class="new-container">
-      <div class="add-form">
-        <input type="text" id="newContainerName" placeholder="New container name">
-        <button id="createContainerBtn">+</button>
-      </div>
-    </div>`;
-}
 
 export function createSettingsContent() {
   return `
@@ -69,6 +61,11 @@ export function createSettingsContent() {
 
 export function createDetailViewContent() {
   return `
+    <div class="setting-row">
+      <span class="setting-label">Group</span>
+      <input type="text" id="containerGroup" placeholder="None" list="groupSuggestions">
+      <datalist id="groupSuggestions"></datalist>
+    </div>
     <div class="setting-row">
       <span class="setting-label">Subdomains default</span>
       <div class="toggle-4" id="containerSubdomainsToggle">

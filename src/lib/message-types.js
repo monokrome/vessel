@@ -17,6 +17,10 @@ export const MESSAGE_TYPES = {
   // Container settings
   SET_CONTAINER_SUBDOMAINS: 'setContainerSubdomains',
 
+  // Container groups
+  SET_CONTAINER_GROUP: 'setContainerGroup',
+  REMOVE_CONTAINER_GROUP: 'removeContainerGroup',
+
   // Domain rules
   ADD_RULE: 'addRule',
   REMOVE_RULE: 'removeRule',

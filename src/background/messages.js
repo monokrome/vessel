@@ -99,6 +99,23 @@ const handlers = {
     return { success: true };
   },
 
+  [MESSAGE_TYPES.SET_CONTAINER_GROUP]: async function(message) {
+    validateCookieStoreId(message.cookieStoreId);
+    if (!message.groupName || typeof message.groupName !== 'string') {
+      throw new Error('Invalid groupName');
+    }
+    state.containerGroups[message.cookieStoreId] = message.groupName;
+    await saveState();
+    return { success: true };
+  },
+
+  [MESSAGE_TYPES.REMOVE_CONTAINER_GROUP]: async function(message) {
+    validateCookieStoreId(message.cookieStoreId);
+    delete state.containerGroups[message.cookieStoreId];
+    await saveState();
+    return { success: true };
+  },
+
   [MESSAGE_TYPES.SET_GLOBAL_SUBDOMAINS]: async function(message) {
     validateBoolean(message.value, 'globalSubdomains');
     state.globalSubdomains = message.value;
