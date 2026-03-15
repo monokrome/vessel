@@ -234,11 +234,12 @@ const handlers = {
       validateCookieStoreId(targetCookieStoreId);
     }
 
-    recentlyCreatedTabs.set(message.tabId, Date.now());
-
-    await browser.tabs.update(message.tabId, { url: message.url });
-
-    if (tab.cookieStoreId !== targetCookieStoreId) {
+    if (tab.cookieStoreId === targetCookieStoreId) {
+      // Already in the right container — just navigate
+      recentlyCreatedTabs.set(message.tabId, Date.now());
+      await browser.tabs.update(message.tabId, { url: message.url });
+    } else {
+      // Different container — create new tab first, then close old
       const newTab = await browser.tabs.create({
         url: message.url,
         cookieStoreId: targetCookieStoreId,

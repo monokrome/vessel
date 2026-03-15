@@ -194,6 +194,9 @@ async function handleMainFrameRequest(details) {
     await handleMainFrameSwitch(tabId, details.url, containerInfo);
   } catch (error) {
     logger.error('Container switch failed:', error, 'url:', details.url, 'container:', cookieStoreId);
+    // Switch failed — allow the request through rather than silently eating it
+    delete canceledRequests[tabId];
+    return {};
   }
 
   return { cancel: true };
