@@ -131,8 +131,23 @@ async function handleMainFrameRequest(details) {
 
   const tabId = details.tabId;
 
-  if (recentlyCreatedTabs.has(tabId) || tabsBeingMoved.has(tabId)) {
+  if (tabsBeingMoved.has(tabId)) {
     return {};
+  }
+
+  // Skip processing for tabs we just created, but only if the request
+  // matches the domain we navigated to. Redirects to a different domain
+  // (e.g., OAuth callback) must still be processed for container switching.
+  const recentTab = recentlyCreatedTabs.get(tabId);
+  if (recentTab) {
+    const recentDomain = typeof recentTab === 'object' ? recentTab.domain : null;
+    const requestDomain = extractDomain(details.url);
+    if (!recentDomain || !requestDomain || requestDomain === recentDomain ||
+        isSubdomainOf(requestDomain, recentDomain) || isSubdomainOf(recentDomain, requestDomain)) {
+      return {};
+    }
+    // Different domain — this is a redirect, process it normally
+    recentlyCreatedTabs.delete(tabId);
   }
 
   if (IGNORED_SCHEMES.some(scheme => details.url.startsWith(scheme))) {

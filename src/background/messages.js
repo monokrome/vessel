@@ -5,6 +5,7 @@
 import { logger } from '../lib/logger.js';
 import { MESSAGE_TYPES } from '../lib/message-types.js';
 import { TEMP_CONTAINER } from '../lib/constants.js';
+import { extractDomain } from '../lib/domain.js';
 import { state, saveState } from './state.js';
 import { getOrCreatePermanentContainer, createTempContainer } from './containers.js';
 import { recentlyCreatedTabs } from './navigation.js';
@@ -234,9 +235,11 @@ const handlers = {
       validateCookieStoreId(targetCookieStoreId);
     }
 
+    const targetDomain = extractDomain(message.url);
+
     if (tab.cookieStoreId === targetCookieStoreId) {
       // Already in the right container — just navigate
-      recentlyCreatedTabs.set(message.tabId, Date.now());
+      recentlyCreatedTabs.set(message.tabId, { timestamp: Date.now(), domain: targetDomain });
       await browser.tabs.update(message.tabId, { url: message.url });
     } else {
       // Different container — create new tab first, then close old
@@ -246,7 +249,7 @@ const handlers = {
         index: tab.index,
         active: true
       });
-      recentlyCreatedTabs.set(newTab.id, Date.now());
+      recentlyCreatedTabs.set(newTab.id, { timestamp: Date.now(), domain: targetDomain });
       await browser.tabs.remove(message.tabId);
     }
 

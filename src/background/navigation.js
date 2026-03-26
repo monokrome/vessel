@@ -184,8 +184,12 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
       pinned: false
     });
 
-    // Mark new tab so we don't re-process it
-    recentlyCreatedTabs.set(newTab.id, Date.now());
+    // Mark new tab so we don't re-process the initial navigation.
+    // Store the domain so redirects to OTHER domains are still processed.
+    recentlyCreatedTabs.set(newTab.id, {
+      timestamp: Date.now(),
+      domain: extractDomain(targetUrl)
+    });
 
     // Navigate after creation so Firefox's HTTPS-Only mode applies
     await browser.tabs.update(newTab.id, { url: targetUrl });
@@ -216,11 +220,6 @@ export async function handleMainFrameSwitch(tabId, url, containerInfo) {
     tab = await browser.tabs.get(tabId);
   } catch (error) {
     logger.warn('Tab already closed:', tabId, error);
-    return;
-  }
-
-  if (recentlyCreatedTabs.has(tabId)) {
-    logger.debug('Skipping tab in recentlyCreatedTabs:', tabId);
     return;
   }
 
