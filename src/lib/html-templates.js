@@ -21,6 +21,7 @@ export function createActionBar() {
 
 export function createContainerList() {
   return `
+    <div id="currentContainerBanner"></div>
     <div class="container-list" id="containerList">
       <div class="empty-state">No containers</div>
     </div>`;

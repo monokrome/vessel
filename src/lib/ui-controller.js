@@ -188,6 +188,7 @@ export function createUIController(options = {}) {
    */
   function showListView() {
     selectedContainer = null;
+    viewManager.renderCurrentContainer(containers);
     renderFilteredContainerList();
     viewManager.updateSettingsToggles(state);
     viewManager.switchView('containers', null, views);

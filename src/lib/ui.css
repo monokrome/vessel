@@ -245,6 +245,27 @@ header h1 {
   overflow-y: auto;
 }
 
+.current-container {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 8px;
+  background: var(--bg-secondary);
+}
+
+.current-container:hover {
+  background: var(--bg-hover);
+}
+
+.current-container-label {
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .container-item {
   display: flex;
   align-items: center;

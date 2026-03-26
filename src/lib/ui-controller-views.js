@@ -167,10 +167,37 @@ export function createViewManager(el, getState, getContainers, getCurrentTabCook
     }).join(''));
   }
 
+  function renderCurrentContainer(containers) {
+    const banner = document.getElementById('currentContainerBanner');
+    if (!banner) return;
+
+    const cookieStoreId = getCurrentTabCookieStoreId();
+    const container = cookieStoreId
+      ? containers.find(c => c.cookieStoreId === cookieStoreId)
+      : null;
+
+    if (!container) {
+      banner.innerHTML = '';
+      return;
+    }
+
+    const color = getContainerColor(container.color);
+    const domains = getDomainsForContainer(getState(), container.cookieStoreId);
+    setSafeHTML(banner, `
+      <div class="current-container" data-id="${container.cookieStoreId}">
+        <div class="container-icon" style="background: ${color}"></div>
+        <span class="container-name">${escapeHtml(container.name)}</span>
+        <span class="current-container-label">current tab</span>
+        <span class="container-count">${domains.length}</span>
+      </div>
+    `);
+  }
+
   return {
     switchView,
     updateSettingsToggles,
     renderFilteredContainerList,
+    renderCurrentContainer,
     showDetailView,
     renderPendingRequests,
   };

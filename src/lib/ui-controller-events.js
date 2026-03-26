@@ -46,6 +46,15 @@ export function createEventSetup(el, callbacks) {
       const id = item.dataset.id;
       onContainerClick(id);
     });
+
+    const banner = document.getElementById('currentContainerBanner');
+    if (banner) {
+      banner.addEventListener('click', (e) => {
+        const item = e.target.closest('.current-container');
+        if (!item) return;
+        onContainerClick(item.dataset.id);
+      });
+    }
   }
 
   function setupNavigationEvents() {
