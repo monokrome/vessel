@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   isIgnoredUrl,
   getContainerForUrl,
+  reopenInContainer,
   NEW_TAB_PAGES,
   recentlyCreatedTabs,
   tabsBeingMoved
@@ -197,24 +198,66 @@ describe('Safety checks for CTRL+click', () => {
   });
 });
 
-describe('Pinned tab handling', () => {
-  // The actual reopenInContainer function checks tab.pinned
-  // These tests verify the expected behavior
-
-  it('pinned tab should be identified by tab.pinned property', () => {
-    const pinnedTab = { id: 1, pinned: true, url: 'https://example.com' };
-    const normalTab = { id: 2, pinned: false, url: 'https://example.com' };
-
-    expect(pinnedTab.pinned).toBe(true);
-    expect(normalTab.pinned).toBe(false);
+describe('reopenInContainer', () => {
+  beforeEach(() => {
+    recentlyCreatedTabs.clear();
+    tabsBeingMoved.clear();
+    vi.clearAllMocks();
+    browser.tabs.create.mockResolvedValue({ id: 99 });
+    browser.tabs.update.mockResolvedValue({});
+    browser.tabs.remove.mockResolvedValue();
   });
 
-  it('keepOriginalTab logic preserves pinned tabs', () => {
-    // This mimics the logic in reopenInContainer
-    const shouldKeepTab = (tab) => tab.pinned;
+  it('creates a new tab in the target container and removes the old one', async () => {
+    const tab = { id: 1, cookieStoreId: 'container-a', windowId: 1, index: 3, pinned: false };
+    await reopenInContainer(tab, 'container-b', 'https://example.com');
 
-    expect(shouldKeepTab({ pinned: true })).toBe(true);
-    expect(shouldKeepTab({ pinned: false })).toBe(false);
+    expect(browser.tabs.create).toHaveBeenCalledWith(expect.objectContaining({
+      cookieStoreId: 'container-b',
+      windowId: 1,
+    }));
+    expect(browser.tabs.update).toHaveBeenCalledWith(99, { url: 'https://example.com' });
+    expect(browser.tabs.remove).toHaveBeenCalledWith(1);
+  });
+
+  it('does not remove pinned tabs', async () => {
+    const tab = { id: 1, cookieStoreId: 'container-a', windowId: 1, index: 3, pinned: true };
+    await reopenInContainer(tab, 'container-b', 'https://example.com');
+
+    expect(browser.tabs.create).toHaveBeenCalled();
+    expect(browser.tabs.remove).not.toHaveBeenCalled();
+  });
+
+  it('marks the new tab in recentlyCreatedTabs with domain', async () => {
+    const tab = { id: 1, cookieStoreId: 'container-a', windowId: 1, index: 3, pinned: false };
+    await reopenInContainer(tab, 'container-b', 'https://example.com/path');
+
+    const entry = recentlyCreatedTabs.get(99);
+    expect(entry).toBeDefined();
+    expect(entry.domain).toBe('example.com');
+    expect(entry.timestamp).toBeTypeOf('number');
+  });
+
+  it('does nothing if already in the correct container', async () => {
+    const tab = { id: 1, cookieStoreId: 'container-a', windowId: 1, index: 3, pinned: false };
+    await reopenInContainer(tab, 'container-a', 'https://example.com');
+
+    expect(browser.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it('does nothing if tab is already being moved', async () => {
+    const tab = { id: 1, cookieStoreId: 'container-a', windowId: 1, index: 3, pinned: false };
+    tabsBeingMoved.set(1, Date.now());
+    await reopenInContainer(tab, 'container-b', 'https://example.com');
+
+    expect(browser.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it('cleans up tabsBeingMoved after completion', async () => {
+    const tab = { id: 1, cookieStoreId: 'container-a', windowId: 1, index: 3, pinned: false };
+    await reopenInContainer(tab, 'container-b', 'https://example.com');
+
+    expect(tabsBeingMoved.has(1)).toBe(false);
   });
 });
 
