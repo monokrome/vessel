@@ -194,14 +194,8 @@ export async function reopenInContainer(tab, cookieStoreId, url) {
     if (!keepOriginalTab) {
       try {
         await browser.tabs.remove(tab.id);
-        // Scrub the intermediate tab from Firefox's undo-close history so
-        // CMD+SHIFT+T restores the user's actual last-closed tab, not ours
-        const recentlyClosed = await browser.sessions.getRecentlyClosed({ maxResults: 1 });
-        if (recentlyClosed.length > 0 && recentlyClosed[0].tab) {
-          await browser.sessions.forgetClosedTab(tab.windowId, recentlyClosed[0].tab.sessionId);
-        }
       } catch {
-        // Tab might already be closed or session entry already gone - this is fine
+        // Tab might already be closed - this is fine
       }
     }
   } catch (error) {
