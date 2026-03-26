@@ -237,6 +237,11 @@ export function shouldBlockRequest(requestDomain, tabCookieStoreId, tabDomain, s
   // Check if tab is in a temp container - allow all requests (already isolated)
   const isInTempContainer = tempContainers.includes(tabCookieStoreId);
 
+  // Blends override all other decisions — if a domain is blended into this container, allow it
+  if (isBlendedInContainer(requestDomain, tabCookieStoreId, state)) {
+    return { block: false, reason: 'blended' };
+  }
+
   const rule = findMatchingRule(requestDomain, state);
   const tabRule = findMatchingRule(tabDomain, state);
 
@@ -252,11 +257,6 @@ export function shouldBlockRequest(requestDomain, tabCookieStoreId, tabDomain, s
 
   // If request domain has a rule for a different container than the tab
   if (rule && !rule.shouldAsk && rule.cookieStoreId !== tabCookieStoreId) {
-    // Check for blend - allows cross-container requests for specific domains
-    if (isBlendedInContainer(requestDomain, tabCookieStoreId, state)) {
-      return { block: false, reason: 'blended' };
-    }
-
     // Temp containers allow cross-container requests (isolation is per-container)
     if (isInTempContainer) {
       return { block: false, reason: 'temp-container' };
