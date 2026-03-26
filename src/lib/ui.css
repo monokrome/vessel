@@ -302,19 +302,19 @@ header h1 {
 
 .detail-tabs {
   display: flex;
-  border-bottom: 1px solid var(--border-color);
-  padding: 0 4px;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
 }
 
 .detail-tab {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 0;
+  padding: 4px 6px;
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-radius: 4px;
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -327,11 +327,11 @@ header h1 {
 
 .detail-tab:hover {
   color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .detail-tab.active {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent);
+  color: var(--accent);
 }
 
 .detail-panel {

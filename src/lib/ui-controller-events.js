@@ -58,8 +58,8 @@ export function createEventSetup(el, callbacks) {
   }
 
   function setupDetailTabEvents() {
-    const detailContent = document.querySelector('.detail-content');
-    if (!detailContent) return;
+    const tabBar = document.getElementById('detailTabs');
+    if (!tabBar) return;
 
     const panelMap = {
       domains: 'detailDomainsPanel',
@@ -67,15 +67,14 @@ export function createEventSetup(el, callbacks) {
       settings: 'detailSettingsPanel',
     };
 
-    detailContent.addEventListener('click', (e) => {
+    tabBar.addEventListener('click', (e) => {
       const tab = e.target.closest('[data-detail-tab]');
       if (!tab) return;
 
       const target = tab.dataset.detailTab;
-      const panelId = panelMap[target];
-      if (!panelId) return;
+      if (!panelMap[target]) return;
 
-      for (const btn of detailContent.querySelectorAll('.detail-tab')) {
+      for (const btn of tabBar.querySelectorAll('.detail-tab')) {
         btn.classList.toggle('active', btn === tab);
       }
       for (const [key, id] of Object.entries(panelMap)) {

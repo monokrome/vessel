@@ -16,6 +16,7 @@ import {
   createActionBar,
   createContainerList,
   createSettingsContent,
+  createDetailTabs,
   createDetailViewContent,
   createPendingList,
   createBlendWarningDialog
@@ -62,6 +63,7 @@ export function createUIController(options = {}) {
 
     inject('containerListContainer', createContainerList());
     inject('actionBarContainer', createActionBar());
+    inject('detailTabs', createDetailTabs());
     inject('pendingListContainer', createPendingList());
     inject('blendWarningContainer', createBlendWarningDialog());
 
@@ -206,16 +208,16 @@ export function createUIController(options = {}) {
     activeView = 'containers';
 
     // Reset detail tabs to domains panel
-    const detailContent = document.querySelector('.detail-content');
-    if (detailContent) {
-      for (const btn of detailContent.querySelectorAll('.detail-tab')) {
+    const tabBar = document.getElementById('detailTabs');
+    if (tabBar) {
+      for (const btn of tabBar.querySelectorAll('.detail-tab')) {
         btn.classList.toggle('active', btn.dataset.detailTab === 'domains');
       }
-      const panels = { domains: true, exclusions: false, settings: false };
-      for (const [key, visible] of Object.entries(panels)) {
-        const panel = document.getElementById(`detail${key.charAt(0).toUpperCase() + key.slice(1)}Panel`);
-        if (panel) panel.style.display = visible ? '' : 'none';
-      }
+    }
+    const panels = { Domains: true, Exclusions: false, Settings: false };
+    for (const [name, visible] of Object.entries(panels)) {
+      const panel = document.getElementById(`detail${name}Panel`);
+      if (panel) panel.style.display = visible ? '' : 'none';
     }
 
     if (el.containerGroup) {
