@@ -20,6 +20,7 @@
   --danger-hover: #ff5252;
   --link-color: #8cb4ff;
   --exclusion-color: #a0a0a8;
+  --accent: #8cb4ff;
 }
 
 @media (prefers-color-scheme: light) {
@@ -40,6 +41,7 @@
     --danger-hover: #b7001e;
     --link-color: #0060df;
     --exclusion-color: #5b5b66;
+    --accent: #0060df;
   }
 }
 
@@ -296,6 +298,44 @@ header h1 {
 
 .detail-view {
   display: none;
+}
+
+.detail-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 4px;
+}
+
+.detail-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.detail-tab svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.detail-tab:hover {
+  color: var(--text-primary);
+}
+
+.detail-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.detail-panel {
+  overflow-y: auto;
 }
 
 /* Domain list */

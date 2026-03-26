@@ -205,6 +205,19 @@ export function createUIController(options = {}) {
     viewManager.switchView('containers', container, views);
     activeView = 'containers';
 
+    // Reset detail tabs to domains panel
+    const detailContent = document.querySelector('.detail-content');
+    if (detailContent) {
+      for (const btn of detailContent.querySelectorAll('.detail-tab')) {
+        btn.classList.toggle('active', btn.dataset.detailTab === 'domains');
+      }
+      const panels = { domains: true, exclusions: false, settings: false };
+      for (const [key, visible] of Object.entries(panels)) {
+        const panel = document.getElementById(`detail${key.charAt(0).toUpperCase() + key.slice(1)}Panel`);
+        if (panel) panel.style.display = visible ? '' : 'none';
+      }
+    }
+
     if (el.containerGroup) {
       el.containerGroup.value = state.containerGroups?.[container.cookieStoreId] || '';
       const suggestions = document.getElementById('groupSuggestions');

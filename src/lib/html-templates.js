@@ -85,46 +85,65 @@ export function createSettingsContent() {
     </div>`;
 }
 
+export const DETAIL_ICONS = {
+  domains: '<svg viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>',
+  exclusions: '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.902 7.902 0 0 1 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.902 7.902 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>',
+  settings: '<svg viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z"/></svg>',
+};
+
 export function createDetailViewContent() {
   return `
-    <div class="setting-row">
-      <span class="setting-label">Group</span>
-      <input type="text" id="containerGroup" placeholder="None" list="groupSuggestions">
-      <datalist id="groupSuggestions"></datalist>
+    <div class="detail-tabs">
+      <button class="detail-tab active" data-detail-tab="domains" title="Domains">${DETAIL_ICONS.domains}</button>
+      <button class="detail-tab" data-detail-tab="exclusions" title="Exclusions">${DETAIL_ICONS.exclusions}</button>
+      <button class="detail-tab" data-detail-tab="settings" title="Settings">${DETAIL_ICONS.settings}</button>
     </div>
-    <div class="setting-row">
-      <span class="setting-label">Subdomains default</span>
-      <div class="toggle-4" id="containerSubdomainsToggle">
-        <button data-value="null">Inherit</button>
-        <button data-value="false">Off</button>
-        <button data-value="ask">Ask</button>
-        <button data-value="true">On</button>
+
+    <div class="detail-panel" id="detailDomainsPanel">
+      <div class="add-form">
+        <input type="text" id="newDomain" placeholder="Add domain (e.g. example.com)">
+        <button id="addDomainBtn">+</button>
+      </div>
+      <div class="domain-list" id="domainList">
+        <div class="empty-state">No domains</div>
+      </div>
+      <div class="section-header">Blended Domains</div>
+      <div class="add-form">
+        <input type="text" id="newBlend" placeholder="Allow domain from another container">
+        <button id="addBlendBtn">+</button>
+      </div>
+      <div class="blend-list" id="blendList">
+        <div class="empty-state">No blended domains</div>
       </div>
     </div>
-    <div class="add-form">
-      <input type="text" id="newDomain" placeholder="Add domain (e.g. example.com)">
-      <button id="addDomainBtn">+</button>
+
+    <div class="detail-panel" id="detailExclusionsPanel" style="display: none;">
+      <div class="add-form">
+        <input type="text" id="newExclusion" placeholder="Add exclusion (e.g. sub.example.com)">
+        <button id="addExclusionBtn">+</button>
+      </div>
+      <div class="exclusion-list" id="exclusionList">
+        <div class="empty-state">No exclusions</div>
+      </div>
     </div>
-    <div class="domain-list" id="domainList">
-      <div class="empty-state">No domains</div>
-    </div>
-    <div class="section-header">Excluded Subdomains</div>
-    <div class="add-form">
-      <input type="text" id="newExclusion" placeholder="Add exclusion (e.g. sub.example.com)">
-      <button id="addExclusionBtn">+</button>
-    </div>
-    <div class="exclusion-list" id="exclusionList">
-      <div class="empty-state">No exclusions</div>
-    </div>
-    <div class="section-header">Blended Domains</div>
-    <div class="add-form">
-      <input type="text" id="newBlend" placeholder="Allow domain from another container">
-      <button id="addBlendBtn">+</button>
-    </div>
-    <div class="blend-list" id="blendList">
-      <div class="empty-state">No blended domains</div>
-    </div>
-    <button class="delete-container" id="deleteContainerBtn">Delete Container</button>`;
+
+    <div class="detail-panel" id="detailSettingsPanel" style="display: none;">
+      <div class="setting-row">
+        <span class="setting-label">Subdomains default</span>
+        <div class="toggle-4" id="containerSubdomainsToggle">
+          <button data-value="null">Inherit</button>
+          <button data-value="false">Off</button>
+          <button data-value="ask">Ask</button>
+          <button data-value="true">On</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Group</span>
+        <input type="text" id="containerGroup" placeholder="None" list="groupSuggestions">
+        <datalist id="groupSuggestions"></datalist>
+      </div>
+      <button class="delete-container" id="deleteContainerBtn">Delete Container</button>
+    </div>`;
 }
 
 export function createPendingList() {

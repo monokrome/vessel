@@ -57,6 +57,34 @@ export function createEventSetup(el, callbacks) {
     }
   }
 
+  function setupDetailTabEvents() {
+    const detailContent = document.querySelector('.detail-content');
+    if (!detailContent) return;
+
+    const panelMap = {
+      domains: 'detailDomainsPanel',
+      exclusions: 'detailExclusionsPanel',
+      settings: 'detailSettingsPanel',
+    };
+
+    detailContent.addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-detail-tab]');
+      if (!tab) return;
+
+      const target = tab.dataset.detailTab;
+      const panelId = panelMap[target];
+      if (!panelId) return;
+
+      for (const btn of detailContent.querySelectorAll('.detail-tab')) {
+        btn.classList.toggle('active', btn === tab);
+      }
+      for (const [key, id] of Object.entries(panelMap)) {
+        const panel = document.getElementById(id);
+        if (panel) panel.style.display = key === target ? '' : 'none';
+      }
+    });
+  }
+
   function setupNavigationEvents() {
     el.backBtn.addEventListener('click', onBackClick);
 
@@ -239,6 +267,7 @@ export function createEventSetup(el, callbacks) {
   function setupAll() {
     setupContainerListEvents();
     setupNavigationEvents();
+    setupDetailTabEvents();
     setupToggleEvents();
     setupContainerCreationEvents();
     setupDomainEvents();
