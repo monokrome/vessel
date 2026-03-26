@@ -726,6 +726,53 @@ describe('shouldBlockRequest', () => {
     expect(result.reason).toBe('cross-container');
   });
 
+  it('allows blended unruled domain requests', () => {
+    const state = createState(
+      {
+        'myapp.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
+      },
+      {
+        containerBlends: { 'container-1': ['cdn.example.com'] },
+      }
+    );
+    // cdn.example.com has no rule but is blended into container-1
+    const result = shouldBlockRequest('cdn.example.com', 'container-1', 'myapp.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('blended');
+  });
+
+  it('allows blended subdomain with ask setting', () => {
+    const state = createState(
+      {
+        'myapp.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
+        'github.com': { cookieStoreId: 'container-2', containerName: 'GitHub', subdomains: 'ask' },
+      },
+      {
+        containerBlends: { 'container-1': ['github.com'] },
+      }
+    );
+    // api.github.com would normally trigger ask-subdomain, but github.com is blended
+    const result = shouldBlockRequest('api.github.com', 'container-1', 'myapp.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('blended');
+  });
+
+  it('blend takes priority over exclusion', () => {
+    const state = createState(
+      {
+        'myapp.com': { cookieStoreId: 'container-1', containerName: 'Work', subdomains: null },
+      },
+      {
+        containerBlends: { 'container-1': ['tracker.com'] },
+        containerExclusions: { 'container-1': ['tracker.com'] },
+      }
+    );
+    // Blended AND excluded — blend wins (user explicitly allowed it)
+    const result = shouldBlockRequest('tracker.com', 'container-1', 'myapp.com', state, []);
+    expect(result.block).toBe(false);
+    expect(result.reason).toBe('blended');
+  });
+
   it('allows blended cross-container subdomain requests', () => {
     const state = createState(
       {

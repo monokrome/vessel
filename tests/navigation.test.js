@@ -83,10 +83,16 @@ describe('Tab tracking sets', () => {
   });
 
   describe('recentlyCreatedTabs', () => {
-    it('can track tab IDs', () => {
-      recentlyCreatedTabs.set(123, Date.now());
+    it('can track tab IDs with domain and timestamp', () => {
+      recentlyCreatedTabs.set(123, { timestamp: Date.now(), domain: 'example.com' });
       expect(recentlyCreatedTabs.has(123)).toBe(true);
       expect(recentlyCreatedTabs.has(456)).toBe(false);
+    });
+
+    it('stores the target domain for redirect detection', () => {
+      recentlyCreatedTabs.set(123, { timestamp: Date.now(), domain: 'github.com' });
+      const entry = recentlyCreatedTabs.get(123);
+      expect(entry.domain).toBe('github.com');
     });
   });
 
@@ -107,6 +113,56 @@ describe('getContainerForUrl', () => {
 
   it('returns null for URLs without domain', () => {
     expect(getContainerForUrl('file:///path/to/file', 'firefox-default')).toBeNull();
+  });
+});
+
+describe('getContainerForUrl - OAuth redirect scenario', () => {
+  let state;
+
+  beforeEach(async () => {
+    // Access the mocked state and configure it for OAuth testing
+    const stateModule = await import('../src/background/state.js');
+    state = stateModule.state;
+    state.domainRules = {
+      'supabase.com': { cookieStoreId: 'supabase-container', containerName: 'Supabase', subdomains: null },
+      'github.com': { cookieStoreId: 'github-container', containerName: 'GitHub', subdomains: null },
+    };
+    state.containerSubdomains = {};
+    state.containerBlends = {};
+    state.tempContainers = [];
+  });
+
+  it('switches from GitHub container to Supabase container on OAuth callback', () => {
+    // User authenticated on GitHub, redirect back to supabase.com/auth/callback
+    const result = getContainerForUrl('https://supabase.com/auth/callback?code=abc', 'github-container');
+    expect(result).not.toBeNull();
+    expect(result.targetCookieStoreId).toBe('supabase-container');
+  });
+
+  it('returns null when already in correct container', () => {
+    // Tab is already in Supabase container loading supabase.com
+    const result = getContainerForUrl('https://supabase.com/dashboard', 'supabase-container');
+    expect(result).toBeNull();
+  });
+
+  it('switches from Supabase container to GitHub container on OAuth initiation', () => {
+    // User clicks "Login with GitHub" on supabase.com
+    const result = getContainerForUrl('https://github.com/login/oauth/authorize', 'supabase-container');
+    expect(result).not.toBeNull();
+    expect(result.targetCookieStoreId).toBe('github-container');
+  });
+
+  it('creates temp container for unruled domain in permanent container', () => {
+    // Tab in Supabase container navigates to random CDN
+    const result = getContainerForUrl('https://cdn.jsdelivr.net/something', 'supabase-container');
+    expect(result).not.toBeNull();
+    expect(result.needsTempContainer).toBe(true);
+  });
+
+  it('returns null for unruled domain in temp container', () => {
+    state.tempContainers = ['temp-1'];
+    const result = getContainerForUrl('https://random-site.com', 'temp-1');
+    expect(result).toBeNull();
   });
 });
 
