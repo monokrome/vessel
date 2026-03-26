@@ -243,10 +243,11 @@ export function shouldBlockRequest(requestDomain, tabCookieStoreId, tabDomain, s
   }
 
   const rule = findMatchingRule(requestDomain, state);
-  const tabRule = findMatchingRule(tabDomain, state);
 
-  // Check exclusions first (even for subdomains of tab domain)
-  if (tabRule && isBlockedForContainer(requestDomain, tabRule.cookieStoreId, state)) {
+  // Check exclusions for the tab's ACTUAL container, not the rule's container.
+  // Using tabRule.cookieStoreId would leak exclusions from other containers
+  // when a tab is blended or in a mismatched container.
+  if (isBlockedForContainer(requestDomain, tabCookieStoreId, state)) {
     return {
       block: true,
       reason: 'excluded',
