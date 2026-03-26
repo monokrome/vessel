@@ -10,6 +10,31 @@ export const ICONS = {
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>'
 };
 
+/**
+ * Create a popup header with tab navigation buttons.
+ * @param {string} title - Header title
+ * @param {string} activeTab - Which tab to mark active
+ * @param {boolean} primary - If true, buttons get real IDs for controller binding
+ */
+export function createPopupHeader(title, activeTab = 'containers', primary = false) {
+  const tabs = [
+    { key: 'containers', label: 'Containers', icon: ICONS.containers },
+    { key: 'settings', label: 'Settings', icon: ICONS.settings },
+    { key: 'pending', label: 'Pending Requests', icon: ICONS.pending, badge: true },
+  ];
+
+  const tabButtons = tabs.map(tab => {
+    const activeClass = tab.id === activeTab ? ' active' : '';
+    const idAttr = primary ? ` id="tab${tab.key.charAt(0).toUpperCase() + tab.key.slice(1)}"` : '';
+    const badge = tab.badge && primary
+      ? '<span class="header-badge" id="pendingBadge" style="display: none;">0</span>'
+      : '';
+    return `<button class="header-tab-btn${activeClass}"${idAttr} data-nav="${tab.key}" title="${tab.label}">${tab.icon}${badge}</button>`;
+  }).join('');
+
+  return `<header><h1>${title}</h1><div class="header-tabs">${tabButtons}</div></header>`;
+}
+
 export function createActionBar() {
   return `
     <div class="action-bar">

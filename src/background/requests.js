@@ -225,8 +225,13 @@ async function handleSubRequest(details, pendingTracker) {
   const requestDomain = extractDomain(details.url);
   if (!requestDomain) return {};
 
-  const tabInfo = tabInfoCache.get(details.tabId);
-  if (!tabInfo || !tabInfo.domain) return {};
+  let tabInfo = tabInfoCache.get(details.tabId);
+  if (!tabInfo || !tabInfo.domain) {
+    // Cache miss — tab may exist but wasn't cached yet (race on startup/restore)
+    await updateTabCache(details.tabId, pendingTracker);
+    tabInfo = tabInfoCache.get(details.tabId);
+    if (!tabInfo || !tabInfo.domain) return {};
+  }
 
   if (!isThirdParty(requestDomain, tabInfo.domain)) {
     return {};
@@ -317,6 +322,10 @@ function setupTabListeners(pendingTracker) {
       const isRealNavigation = changeInfo.status === 'loading';
       await updateTabCache(tabId, pendingTracker, isRealNavigation);
     }
+  });
+
+  browser.tabs.onActivated.addListener(async (activeInfo) => {
+    await updateTabCache(activeInfo.tabId, pendingTracker);
   });
 
   browser.tabs.onRemoved.addListener((tabId) => {

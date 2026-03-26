@@ -70,9 +70,11 @@ describe('HTML Structure', () => {
   describe('Required HTML elements exist', () => {
     it('popup.html has essential elements', () => {
       const html = readFile('popup/popup.html');
-      // containerList is now injected via JS templates
       expect(html).toContain('id="containerListContainer"');
-      expect(html).toContain('id="tabContainers"');
+      // Tab buttons are injected via createPopupHeader in popup.js
+      expect(html).toContain('id="listViewHeader"');
+      expect(html).toContain('id="settingsViewHeader"');
+      expect(html).toContain('id="pendingViewHeader"');
     });
 
     it('sidebar.html has essential elements', () => {

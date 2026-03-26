@@ -65,63 +65,21 @@
 <body class="vessel-popup">
   <!-- List View (Container list with search) -->
   <div id="listView" class="tab-content">
-    <header>
-      <h1>Vessel</h1>
-      <div class="header-tabs">
-        <button class="header-tab-btn active" id="tabContainers" title="Containers">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 2L4 7v10l8 5 8-5V7l-8-5zm0 2.5L18 8v8l-6 3.5L6 16V8l6-3.5z"/>
-          </svg>
-        </button>
-        <button class="header-tab-btn" id="tabSettings" title="Settings">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z"/>
-          </svg>
-        </button>
-        <button class="header-tab-btn" id="tabPending" title="Pending Requests">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
-            <path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
-          </svg>
-          <span class="header-badge" id="pendingBadge" style="display: none;">0</span>
-        </button>
-      </div>
-    </header>
-
+    <div id="listViewHeader"></div>
     <div id="containerListContainer"></div>
     <div id="actionBarContainer"></div>
   </div>
 
   <!-- Settings View -->
   <div id="settingsView" class="settings-view tab-content">
-    <header>
-      <h1>Settings</h1>
-      <div class="header-tabs">
-        <button class="header-tab-btn" id="tabContainersFromSettings" title="Containers">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 2L4 7v10l8 5 8-5V7l-8-5zm0 2.5L18 8v8l-6 3.5L6 16V8l6-3.5z"/>
-          </svg>
-        </button>
-        <button class="header-tab-btn active" id="tabSettingsFromSettings" title="Settings">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z"/>
-          </svg>
-        </button>
-        <button class="header-tab-btn" id="tabPendingFromSettings" title="Pending Requests">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
-            <path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
-          </svg>
-        </button>
-      </div>
-    </header>
+    <div id="settingsViewHeader"></div>
     <div class="settings-content"></div>
   </div>
 
   <!-- Detail View (Container details) -->
   <div id="detailView" class="detail-view tab-content">
     <header>
-      <button class="back-btn" id="backBtn">←</button>
+      <button class="back-btn" id="backBtn">&#8592;</button>
       <h1 id="detailTitle">Container</h1>
     </header>
     <div class="detail-content"></div>
@@ -129,27 +87,7 @@
 
   <!-- Pending View -->
   <div id="pendingView" class="pending-view tab-content">
-    <header>
-      <h1>Pending</h1>
-      <div class="header-tabs">
-        <button class="header-tab-btn" id="tabContainersFromPending" title="Containers">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 2L4 7v10l8 5 8-5V7l-8-5zm0 2.5L18 8v8l-6 3.5L6 16V8l6-3.5z"/>
-          </svg>
-        </button>
-        <button class="header-tab-btn" id="tabSettingsFromPending" title="Settings">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z"/>
-          </svg>
-        </button>
-        <button class="header-tab-btn active" id="tabPendingFromPending" title="Pending Requests">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
-            <path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
-          </svg>
-        </button>
-      </div>
-    </header>
+    <div id="pendingViewHeader"></div>
     <div id="pendingListContainer"></div>
   </div>
 

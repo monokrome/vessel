@@ -1,50 +1,40 @@
 import { createUIController } from '../lib/ui-controller.js';
+import { createPopupHeader } from '../lib/html-templates.js';
 
-// Popup has additional header tab buttons that need to be wired up
+function injectPopupHeaders() {
+  const headers = {
+    listViewHeader: createPopupHeader('Vessel', 'containers', true),
+    settingsViewHeader: createPopupHeader('Settings', 'settings'),
+    pendingViewHeader: createPopupHeader('Pending', 'pending'),
+  };
+
+  for (const [id, html] of Object.entries(headers)) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
+}
+
 function setupPopupTabNavigation() {
-  // Container nav buttons from other views
-  const containerNavBtns = [
-    document.getElementById('tabContainersFromSettings'),
-    document.getElementById('tabContainersFromPending')
-  ];
+  // Delegate header tab clicks to the shared tab button IDs that
+  // ui-controller-events.js binds to (tabContainers, tabSettings, tabPending)
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-nav]');
+    if (!btn) return;
 
-  // Settings nav buttons from other views
-  const settingsNavBtns = [
-    document.getElementById('tabSettingsFromSettings'),
-    document.getElementById('tabSettingsFromPending')
-  ];
+    const targetMap = {
+      containers: 'tabContainers',
+      settings: 'tabSettings',
+      pending: 'tabPending',
+    };
 
-  // Pending nav buttons from other views
-  const pendingNavBtns = [
-    document.getElementById('tabPendingFromSettings'),
-    document.getElementById('tabPendingFromPending')
-  ];
-
-  containerNavBtns.forEach(btn => {
-    if (btn) {
-      btn.addEventListener('click', () => {
-        document.getElementById('tabContainers').click();
-      });
-    }
-  });
-
-  settingsNavBtns.forEach(btn => {
-    if (btn) {
-      btn.addEventListener('click', () => {
-        document.getElementById('tabSettings').click();
-      });
-    }
-  });
-
-  pendingNavBtns.forEach(btn => {
-    if (btn) {
-      btn.addEventListener('click', () => {
-        document.getElementById('tabPending').click();
-      });
+    const targetId = targetMap[btn.dataset.nav];
+    if (targetId) {
+      document.getElementById(targetId)?.click();
     }
   });
 }
 
+injectPopupHeaders();
 const controller = createUIController({ mode: 'popup' });
 setupPopupTabNavigation();
 controller.init();

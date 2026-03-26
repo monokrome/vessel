@@ -8,7 +8,7 @@ import { TEMP_CONTAINER } from '../lib/constants.js';
 import { extractDomain } from '../lib/domain.js';
 import { state, saveState } from './state.js';
 import { getOrCreatePermanentContainer, createTempContainer } from './containers.js';
-import { recentlyCreatedTabs } from './navigation.js';
+import { recentlyCreatedTabs, reopenInContainer } from './navigation.js';
 import { setTempAllowedDomain } from '../lib/data-loading.js';
 import { validateDomain, validateCookieStoreId, validateTabId, validateContainerName, validateBoolean } from '../lib/validators.js';
 import { isInTempContainer } from '../lib/state-operations.js';
@@ -235,22 +235,17 @@ const handlers = {
       validateCookieStoreId(targetCookieStoreId);
     }
 
-    const targetDomain = extractDomain(message.url);
-
     if (tab.cookieStoreId === targetCookieStoreId) {
       // Already in the right container — just navigate
-      recentlyCreatedTabs.set(message.tabId, { timestamp: Date.now(), domain: targetDomain });
+      recentlyCreatedTabs.set(message.tabId, {
+        timestamp: Date.now(),
+        domain: extractDomain(message.url)
+      });
       await browser.tabs.update(message.tabId, { url: message.url });
     } else {
-      // Different container — create new tab first, then close old
-      const newTab = await browser.tabs.create({
-        url: message.url,
-        cookieStoreId: targetCookieStoreId,
-        index: tab.index,
-        active: true
-      });
-      recentlyCreatedTabs.set(newTab.id, { timestamp: Date.now(), domain: targetDomain });
-      await browser.tabs.remove(message.tabId);
+      // Different container — delegate to reopenInContainer for consistent
+      // behavior (pinned tab safety, tabsBeingMoved tracking, etc.)
+      await reopenInContainer(tab, targetCookieStoreId, message.url);
     }
 
     return { success: true };
